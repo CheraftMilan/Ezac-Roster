@@ -1,0 +1,189 @@
+﻿@page "/add/{calendarId:int}"
+@rendermode InteractiveServer
+@using Ezac.Roster.Domain.Entities
+@using Ezac.Roster.Infrastructure.Interfaces
+@using MudBlazor
+@using Ezac.Roster.Infrastructure.Models.Member
+@using Ezac.Roster.Domain.Models.Member
+@using Ezac.Roster.Domain.Interfaces.Repositories 
+@inject NavigationManager navManager
+@inject IQualificationService qualificationService
+@inject IMemberService memberService
+@inject IMemberRepository memberRepository
+<label class="text-danger">@_errorMessage</label>
+<MudThemeProvider />
+<EditForm Model="_member" OnValidSubmit="AddUserAsync" Style="max-width: 600px; margin: 0 auto;">
+    <DataAnnotationsValidator />
+    <MudGrid>
+        <MudItem xs="12" sm="7">
+            <MudCard Style="box-shadow: 0px 0px 10px rgba(0, 0, 0, 0.1);">
+                <MudCardContent>
+                    <MudText Typo="Typo.h6" Color="Color.Error" Class="text-center">@_errorMessage</MudText>
+                    <MudTextField Label="Naam"
+                                  Class="mt-5"
+                                  @bind-Value="_member.Name"
+                                  For="() => _member.Name"
+                                  Variant="Variant.Outlined"
+                                  Style="width: 100%;" />
+
+                    <MudTextField Label="Email"
+                                  Class="mt-5"
+                                  @bind-Value="_member.Email"
+                                  For="() => _member.Email"
+                                  Variant="Variant.Outlined"
+                                  Style="width: 100%;" />
+
+                    <MudSlider @bind-Value="@_lieristExperience"
+                               Min="0"
+                               Max="10"
+                               Step="1"
+                               Color="Color.Success">
+                        Lierist ervaring: @_lieristExperience.ToString("F2")
+                    </MudSlider>
+
+                    <MudSlider @bind-Value="@_barExperience"
+                               Min="0"
+                               Max="10"
+                               Step="1"
+                               Color="Color.Success">
+                        Bar ervaring: @_barExperience.ToString("F2")
+                    </MudSlider>
+
+                    <MudSlider @bind-Value="@_startOfficerExperience"
+                               Min="0"
+                               Max="10"
+                               Step="1"
+                               Color="Color.Success">
+                        Start-Officier ervaring: @_startOfficerExperience.ToString("F2")
+                    </MudSlider>
+
+                    <MudSlider @bind-Value="@_instructorExperience"
+                               Min="0"
+                               Max="10"
+                               Step="1"
+                               Color="Color.Success">
+                        Instructeur ervaring: @_instructorExperience.ToString("F2")
+                    </MudSlider>
+
+
+                    <MudSlider @bind-Value="_sliderValue"
+                               Min="0"
+                               Max="1"
+                               Step="0.05"
+                               Color="Color.Success">
+                        Inschaling: @_sliderValue.ToString("F2")
+                    </MudSlider>
+                </MudCardContent>
+                <MudCardActions>
+                    <MudButton ButtonType="ButtonType.Submit"
+                               Variant="Variant.Filled"
+                               Color="Color.Primary"
+                               Class="ml-auto">Opslaan</MudButton>
+
+                    <MudButton ButtonType="ButtonType.Button"
+                               @onclick="GoBack"
+                               Variant="Variant.Outlined"
+                               Color="Color.Primary"
+                               Class="ms-2">Terug</MudButton>
+                </MudCardActions>
+            </MudCard>
+        </MudItem>
+    </MudGrid>
+</EditForm>
+<MudProgressCircular Indeterminate="true" Style="position: absolute; top: 50%; left: 50%;" Class="@(_isLoading ? "" : "d-none")" />
+
+@code {
+    private Member _member = new Member();
+    public List<Qualification> Qualifications = new List<Qualification>();
+    public Qualification Qualification = new Qualification();
+    private double _sliderValue;
+    private int _barExperience { get; set; }
+    private int _lieristExperience { get; set; }
+    private int _instructorExperience { get; set; }
+    private int _startOfficerExperience { get; set; }
+    private string _errorMessage;
+    private bool _isLoading { get; set; }
+    [Parameter]
+    public int CalendarId { get; set; }
+    protected override async Task OnInitializedAsync()
+    {
+        var qualificationsResult = await qualificationService.GetAllAsync();
+        if (qualificationsResult.IsSuccess)
+        {
+            Qualifications = qualificationsResult.Value.ToList();
+        }
+    }
+    private async Task AddUserAsync()
+    {
+        _isLoading = true;
+        _errorMessage = string.Empty;
+
+        if (string.IsNullOrEmpty(_member.Email) && string.IsNullOrEmpty(_member.Name))
+        {
+            _errorMessage = "Gelieve alle velden in te vullen.";
+            _isLoading = false;
+            return;
+        }
+        else if (string.IsNullOrEmpty(_member.Email))
+        {
+            _errorMessage = "Email veld is verplicht!.";
+            _isLoading = false;
+            return;
+        }
+        else if (!_member.Email.Contains("@"))
+        {
+            _errorMessage = "Vul een email in het juiste formaat in!";
+            _isLoading = false;
+            return;
+        }
+        else if (_sliderValue < 0)
+        {
+            _errorMessage = "De beschaling moet groter zijn dan 0!";
+            _isLoading = false;
+            return;
+        }
+
+        MemberCreateRequestModel memberCreateRequestModel = new MemberCreateRequestModel
+        {
+            Id = Guid.NewGuid().ToString(),
+            Name = _member.Name,
+            Email = _member.Email,
+            Scaling = _sliderValue,
+            CalendarId = CalendarId
+        };
+
+        var createResult = await memberService.CreateAsync(memberCreateRequestModel);
+        if (!createResult.IsSuccess)
+        {
+            _errorMessage = "Er is iets fout gegaan!";
+            _isLoading = false;
+            navManager.NavigateTo($"/membersOverview/{CalendarId}");
+        }
+
+        MemberAddQualificationRequestModel memberAddQualificationRequestModel = new MemberAddQualificationRequestModel()
+        {
+            MemberId = createResult.Value.Id, // Use the returned MemberId
+            LierLicense = _lieristExperience,
+            BarLicense = _barExperience,
+            InstructorLicense = _instructorExperience,
+            StartingOfficerLicense = _startOfficerExperience,
+        };
+        var result = await memberService.AddQualification(memberAddQualificationRequestModel);
+        if (result.IsSuccess)
+        {
+            navManager.NavigateTo($"/membersOverview/{CalendarId}");
+        }
+        else
+        {
+            _errorMessage = "Fout bij het toevoegen van de gebruiker.";
+            _isLoading = false;
+        }
+        _isLoading = false;
+    }
+
+
+    private void GoBack()
+    {
+        navManager.NavigateTo($"/membersOverview/{CalendarId}");
+    }
+}

@@ -1,0 +1,147 @@
+﻿@page "/edit/service/{PlannedServiceId:int}"
+@rendermode InteractiveServer
+
+@if (PlannedService != null)
+{
+    <div class="text-center">
+        <h3>Bijwerk @PlannedService.Service.Name op @PartOfDay.Day.Date.ToShortDateString()</h3>
+
+        <p>Dag: @GetDayNameDutch(PartOfDay.Day.Date) @PartOfDay.Day.Date.ToShortDateString()</p>
+        <p>Van @PartOfDay.StartTime tot @PartOfDay.EndTime</p>
+        <p>Toegewezen lid: @(PlannedService.Member?.Name ?? "Nog geen lid toegewezen")</p>
+        <p>Totale belasting lid: @(PlannedService.Member?.TotalWeight.ToString() ?? "Nog geen lid toegewezen")</p>
+        <p>Gewicht van deze dienst: @PlannedService.Weight / 10</p>
+    </div>
+
+    <EditForm Model="@Member" OnValidSubmit="Process">
+        <DataAnnotationsValidator />
+        <ValidationSummary />
+
+        <div class="form-group">
+            <label for="selectedOption" class="pb-5">Selecteer een lid om dienst over te nemen:</label>
+            @{
+                var membersWithTwoStars = Members.Where(member => member.Preferences.Any(p => p.PartOfDayId == PartOfDay.Id && p.ServiceId == PlannedService.ServiceId)).OrderBy(member => member.TotalWeight);
+                var membersWithOneStar = Members.Where(member => member.Preferences.Any(p => p.PartOfDayId == PartOfDay.Id)).Except(membersWithTwoStars).OrderBy(member => member.TotalWeight);
+                var otherMembers = Members.Except(membersWithTwoStars).Except(membersWithOneStar).OrderBy(member => member.TotalWeight);
+            }
+            <InputSelect id="selectedOption" @bind-Value="@Member.Id" class="form-control mb-5">
+                <option value="">Selecteer een lid</option>
+                @foreach (var member in membersWithTwoStars)
+                {
+                    <option value="@member.Id">@member.Name -Belasting: @member.TotalWeight ★★</option>
+                }
+
+                @foreach (var member in membersWithOneStar)
+                {
+                    <option value="@member.Id">@member.Name -Belasting: @member.TotalWeight ★</option>
+                }
+
+                @foreach (var member in otherMembers)
+                {
+                    <option value="@member.Id">@member.Name -Belasting: @member.TotalWeight</option>
+                }
+            </InputSelect>
+            <label class="text-danger pb-5">@ErrorMessage</label>
+        </div>
+        <button class="btn btn-primary" @onclick="GoBack">Terug</button>
+        <button type="submit" class="btn btn-primary">Bevestig</button>
+    </EditForm>
+}
+
+@code {
+    @using Ezac.Roster.Domain.Entities
+    @using Ezac.Roster.Infrastructure.Interfaces
+    @using Ezac.Roster.Domain.Interfaces.Services
+    @using Ezac.Roster.Infrastructure.Models.PlannedService
+    @using Ezac.Roster.Domain.Interfaces.Repositories
+    @inject IPlannedServiceService plannedServiceService
+    @inject IPartOfDayService partOfDayService
+    @inject IMemberService memberService
+    @inject IServiceService serviceService
+    @inject IPreferenceService preferenceService
+    @inject NavigationManager navManager
+    @inject IMemberRepository memberRepository
+
+
+    [Parameter]
+    public int PlannedServiceId { get; set; }
+
+    private PlannedService PlannedService { get; set; }
+    private PartOfDay PartOfDay { get; set; }
+    private List<Member> Members { get; set; }
+    private Member Member { get; set; } = new();
+    private Member PreviousMember { get; set;}
+    private string ErrorMessage { get; set; }
+
+    protected async override Task OnInitializedAsync()
+    {
+        var plannedService = await plannedServiceService.GetByIdAsync(PlannedServiceId);
+        PlannedService = plannedService.Value;
+        if(PlannedService.Member != null)
+        {
+            PreviousMember = PlannedService.Member;
+        }
+        var partOfDay = await partOfDayService.GetByIdAsync(PlannedService.PartOfDayId);
+        PartOfDay = partOfDay.Value;
+        var members = await memberService.GetAllAsync();
+        Members = members.Value.ToList();
+        var serviceWithQualificationsResult = await serviceService.GetByIdAsync(PlannedService.Service.Id);
+        var serviceWithQualifications = serviceWithQualificationsResult.Value;
+        var qualificationsWithUserId = serviceWithQualifications.RequiredQualifications.Where(q => q.Experience > PlannedService.Service.RequeredExperience).ToList();
+        var usersAllowed = qualificationsWithUserId.Select(q => q.Member);
+        usersAllowed = usersAllowed.Where(u => !u.PlannedServices.Select(ps => ps.PartOfDayId).Contains(PartOfDay.Id));
+        usersAllowed = usersAllowed.Where(u => u.Scaling > 0);
+        usersAllowed = usersAllowed.Where(u => u.CalendarId == PlannedService.CalendarId).ToList();
+        var membersFromDb = await memberService.GetAllAsync();
+        var membersFilter = membersFromDb.Value.Where(m => usersAllowed.Any(u => u.Id == m.Id));
+        Members = membersFilter.OrderBy(m => m.TotalWeight).ToList();
+
+    }
+    private string GetDayNameDutch(DateTime date) => date.DayOfWeek switch
+    {
+        DayOfWeek.Monday => "Maandag",
+        DayOfWeek.Tuesday => "Dinsdag",
+        DayOfWeek.Wednesday => "Woensdag",
+        DayOfWeek.Thursday => "Donderdag",
+        DayOfWeek.Friday => "Vrijdag",
+        DayOfWeek.Saturday => "Zaterdag",
+        DayOfWeek.Sunday => "Zondag",
+        _ => string.Empty,
+    };
+    private async void Process()
+    {
+        ErrorMessage = "";
+        if(Member.Id != null)
+        {
+            var result = await plannedServiceService.UpdateAsync(new PlannedServiceUpdateRequestModel { Id = PlannedService.Id, PartOfDayId = PlannedService.PartOfDayId, CalendarId = PlannedService.CalendarId, Weight = (int)PlannedService.Weight, ServiceId = PlannedService.ServiceId, MemberId = Member.Id });
+            if (result.IsSuccess)
+            {
+                //change totalweight member
+                if(PreviousMember != null)
+                {
+                    PreviousMember.TotalWeight -= PlannedService.Weight.Value;
+                    await memberRepository.UpdateAsync(PreviousMember);
+
+                }
+                var member = await memberService.GetByIdAsync(Member.Id);
+                Member = member.Value;
+                Member.TotalWeight += PlannedService.Weight.Value;
+                await memberRepository.UpdateAsync(Member);
+                navManager.NavigateTo($"/calendarOverview/{PlannedService.CalendarId}");
+            }
+            else
+            {
+                ErrorMessage = "Er is iets misgelopen bij het bijwerken van de dienst";
+            }
+        }
+        else
+        {
+            ErrorMessage = "Gelieve een lid te selecteren";
+        }
+    }
+    private void GoBack()
+    {
+        ErrorMessage = "";
+        navManager.NavigateTo($"/calendarOverview/{PlannedService.CalendarId}");
+    }
+}

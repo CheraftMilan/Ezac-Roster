@@ -1,0 +1,91 @@
+﻿@page "/workload/{calendarId:int}"
+@rendermode InteractiveServer
+@using Ezac.Roster.Domain.Entities
+@using MudBlazor
+@using Ezac.Roster.Infrastructure.Interfaces
+@inject ICalendarService calendarService
+@inject IServiceService serviceService
+@inject NavigationManager navManager
+
+<MudThemeProvider />
+<MudDialogProvider />
+
+<MudContainer MaxWidth="MaxWidth.Large">
+    <MudGrid>
+        <MudItem xs="12" class="text-center mb-4">
+            <MudButton StartIcon="@Icons.Material.Filled.ArrowBack"
+                       Variant="Variant.Filled"
+                       Color="Color.Primary"
+                       @onclick="GoBack">Terug</MudButton>
+        </MudItem>
+        <MudItem xs="12" class="text-center mb-4">
+            <h3>Werklast Overzicht: <span style="color: blue">@_calendarName</span></h3>
+        </MudItem>
+        <MudItem xs="12">
+            <MudTable Items="@_members">
+                <HeaderContent>
+                    <MudTh>Lid</MudTh>
+                    <MudTh>Onbeschikbaar</MudTh>
+                    <MudTh>Schaal</MudTh>
+                    <MudTh>Vereiste werklast</MudTh>
+                    <MudTh>Actuele werklast</MudTh>
+                </HeaderContent>
+                <RowTemplate>
+                    <MudTd DataLabel="Lid">@context.Name</MudTd>
+                    <MudTd DataLabel="Onbeschikbaar">
+                        @if (context.Preferences == null)
+                        {
+                            <p>100%</p>
+                        }
+                        else
+                        {
+                            <p>@(100 - ((context.Preferences.Count / (double)_totalPoD) * 100))%</p>
+                        }
+                    </MudTd>
+                    <MudTd DataLabel="Schaal">@(context.Scaling * 100)%</MudTd>
+                    <MudTd DataLabel="Vereiste werklast">@(Math.Round(_totalWeight * context.Scaling))</MudTd>
+                    <MudTd DataLabel="Actuele werklast">@(Math.Round((context.TotalWeight / (_totalWeight * context.Scaling) * 100)))%</MudTd>
+                </RowTemplate>
+            </MudTable>
+        </MudItem>
+    </MudGrid>
+</MudContainer>
+
+@code {
+    #region Properties
+    private List<Member> _members = new();
+    private List<Service> _services = new();
+    private Calendar _calendar = new();
+    private int _totalPoD;
+    private double _totalWeight;
+    private double _scaling;
+    private string _calendarName;
+    [Parameter]
+    public int CalendarId { get; set; }
+    #endregion
+
+    #region Initialize
+    protected override async Task OnInitializedAsync()
+    {
+        var calendarResult = await calendarService.GetByIdAsync(CalendarId);
+        var serviceResult = await serviceService.GetAllAsync();
+
+        if (calendarResult.IsSuccess && serviceResult.IsSuccess)
+        {
+            _calendar = calendarResult.Value;
+            _calendarName = _calendar.Name;
+            _members = _calendar.Members.ToList();
+            _services = serviceResult.Value.ToList();
+
+            _totalPoD = _calendar.Days.Sum(day => day.PartOfDays.Count);
+            _scaling = _members.Sum(member => member.Scaling);
+            _totalWeight = _services.Sum(service => service.Weight);
+        }
+    }
+    #endregion
+
+    private void GoBack()
+    {
+        navManager.NavigateTo("/calendar");
+    }
+}

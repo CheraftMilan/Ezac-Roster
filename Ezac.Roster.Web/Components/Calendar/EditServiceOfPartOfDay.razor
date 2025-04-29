@@ -1,0 +1,104 @@
+﻿@page "/calendar/editservice/{partOfDayId:int}"
+@using Ezac.Roster.Domain.Entities
+@using Ezac.Roster.Infrastructure.Interfaces
+@inject IPartOfDayService partOfDayService
+@inject IServiceService serviceService
+@inject NavigationManager navManager
+@rendermode InteractiveServer
+@if (_partOfDay != null)
+{
+    <div class="container mt-3">
+        <div class="row">
+            <span class="alert-danger">@_errorMessage</span>
+            @if (_partOfDay.Services.Count() == 0 || _partOfDay == null)
+            {
+                <p>Er zijn geen diensten toegevoegd aan dit dagdeel</p>
+                <div class="row">
+                    <div class="col-md-12">
+                        <button class="btn btn-secondary ms-2" @onclick="GoBack">Terug</button>
+                    </div>
+                </div>
+            }
+            else
+            {
+                @foreach (var service in _partOfDay.Services)
+                {
+                    <div class="col-md-6 mb-3">
+                        <div class="card">
+                            <div class="card-body">
+                                <div class="form-group">
+                                    <label for="serviceName">Dienst:</label>
+                                    <input type="text" class="form-control" id="serviceName" value="@service.Name" readonly />
+                                </div>
+                                <div class="form-group">
+                                    <label for="serviceWeight">Gewicht:</label>
+                                    <input min="0" max="10" type="number" class="form-control" id="serviceWeight" @bind="service.Weight" />
+                                </div>
+                                <div class="form-group">
+                                    <label for="serviceExperience">Vereiste ervaring:</label>
+                                    <input min="0" max="10" type="number" class="form-control" id="serviceExperience" @bind="service.RequeredExperience" />
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                }
+                <div class="row">
+                    <div class="col-md-12">
+                        <button class="btn btn-primary" @onclick="SubmitAsync">Opslaan</button>
+                        <button class="btn btn-secondary ms-2" @onclick="GoBack">Terug</button>
+                    </div>
+                </div>
+            }
+        </div>
+    </div>
+}
+else
+{
+    <p>Loading...</p>
+}
+
+@code {
+    [Parameter]
+    public int PartOfDayId { get; set; }
+
+    private PartOfDay _partOfDay;
+    private string _errorMessage;
+
+    protected override async Task OnInitializedAsync()
+    {
+        var partOfDayResult = await partOfDayService.GetByIdAsync(PartOfDayId);
+        if (partOfDayResult.IsSuccess)
+        {
+            _partOfDay = partOfDayResult.Value;
+        }
+    }
+
+    private async Task SubmitAsync()
+    {
+        foreach (var service in _partOfDay.Services)
+        {
+            var updateModel = new Ezac.Roster.Infrastructure.Models.Service.ServiceUpdateRequestModel
+            {
+                Id = service.Id,
+                Weight = service.Weight,
+                RequeredExperience = service.RequeredExperience
+            };
+
+            var result = await serviceService.UpdateAsync(updateModel);
+            if (!result.IsSuccess)
+            {
+                _errorMessage = "Fout bij het bewerken!";
+            }
+            else
+            {
+                GoBack();
+            }
+        }
+
+    }
+
+    private void GoBack()
+    {
+        navManager.NavigateTo($"/calendar/edit/{_partOfDay.Day.CalendarId}");
+    }
+}

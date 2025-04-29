@@ -1,0 +1,353 @@
+﻿@page "/calendar/add"
+@rendermode InteractiveServer
+@using MudBlazor
+@using Ezac.Roster.Domain.Entities
+@using Infrastructure.Models.Calendar
+@using Ezac.Roster.Infrastructure.Interfaces
+@using Ezac.Roster.Infrastructure.Models.Day
+@using Ezac.Roster.Infrastructure.Models.PartOfDay
+@using Ezac.Roster.Infrastructure.Models.Service
+@inject ICalendarService _calendarService
+@inject IDayService _dayService
+@inject IPartOfDayService _partOfDayService
+@inject IServiceService _serviceService
+@inject NavigationManager navManager
+
+<h3 class="text-center">Maak een nieuwe kalender</h3>
+<MudButton StartIcon="@Icons.Material.Filled.ArrowBack" Disabled="_isLoading" Variant="Variant.Filled" Color="Color.Success" OnClick="GoBack" Class="mt-2">Terug naar kalenders</MudButton>
+
+<MudThemeProvider />
+<MudGrid>
+    <MudItem xs="12" sm="12" md="6" lg="6">
+        <MudCard>
+            <MudCardContent>
+                <MudGrid>
+                    <label class="text-danger">@_message</label>
+                    <MudItem xs="12">
+                        <MudTextField Label="Kalendernaam" Variant="Variant.Filled" @bind-Value="_calendarName" Placeholder="Voer de naam van de kalender in" />
+                    </MudItem>
+                    <MudItem xs="12">
+                        <MudTextField Label="Beschrijving" Variant="Variant.Filled" @bind-Value="_calendarDescription" Placeholder="Voer een beschrijving van de kalender in" />
+                    </MudItem>
+                    <MudItem xs="12">
+                        <label class="form-label h6">Startdatum van de kalender:</label>
+                        <InputDate @bind-Value="_startDate" PickerVariant="PickerVariant.Dialog" /><br />
+                    </MudItem>
+                    <MudItem xs="12">
+                        <label class="form-label h6">Einddatum van de kalender:</label>
+                        <InputDate @bind-Value="_endDate" PickerVariant="PickerVariant.Dialog" /><br />
+                    </MudItem>
+                    <MudItem xs="12">
+                        <label class="form-label h6">Selecteer een specifieke dag:</label>
+                        <InputDate @bind-Value="_oneDay" PickerVariant="PickerVariant.Dialog" /><br />
+                    </MudItem>
+                    <MudItem xs="6">
+                        <MudButton Variant="Variant.Filled" Color="Color.Primary" Disabled="_isLoading" OnClick="AddDay" Class="mt-2">Voeg de geselecteerde dag toe</MudButton>
+                    </MudItem>
+                    <MudItem xs="6">
+                        <MudButton Variant="Variant.Filled" Color="Color.Primary" Disabled="_isLoading" OnClick="AddWeekends" Class="mt-2">Voeg alleen weekends toe</MudButton>
+                    </MudItem>
+                    <MudItem xs="6">
+                        <MudButton Variant="Variant.Filled" Color="Color.Primary" Disabled="_isLoading" OnClick="AddAllDays" Class="mt-2">Voeg alle dagen toe</MudButton>
+                    </MudItem>
+                    <MudItem xs="6">
+                        <MudButton StartIcon="@Icons.Material.Filled.Delete" Disabled="_isLoading" Variant="Variant.Outlined" Color="Color.Error" Size="Size.Medium" OnClick="RemoveAllDays" Class="mt-2">Verwijder alle geselecteerde dagen</MudButton>
+                    </MudItem>
+                    <MudItem xs="12">
+                        <MudButton StartIcon="@Icons.Material.Filled.Create" Disabled="_isLoading" Variant="Variant.Filled" Color="Color.Success" OnClick="CreateCalendar" Class="mt-2">Maak kalender aan</MudButton>
+                    </MudItem>
+
+                    <MudItem xs="12" Style="text-align: center; margin-top: 20px;" Hidden="@(!_isLoading)">
+                        <MudProgressCircular Indeterminate="true" />
+                    </MudItem>
+                </MudGrid>
+            </MudCardContent>
+        </MudCard>
+    </MudItem>
+    <MudItem xs="12" sm="12" md="6" lg="6">
+        <MudCard>
+            <MudCardContent>
+                <MudTable Items="_selectedDays">
+                    <HeaderContent>
+                        <MudTh>Geselecteerde dagen</MudTh>
+                    </HeaderContent>
+                    <RowTemplate>
+                        <MudTd Data="@context">
+                            @GetDayNameDutch(context.Date) @context.ToShortDateString()
+                            <MudButton StartIcon="@Icons.Material.Filled.Delete" Disabled="_isLoading" Variant="Variant.Outlined" Color="Color.Error" OnClick="() => RemoveDay(context)">Verwijder</MudButton>
+                        </MudTd>
+                    </RowTemplate>
+                    <PagerContent>
+                        <MudTablePager />
+                    </PagerContent>
+                </MudTable>
+            </MudCardContent>
+        </MudCard>
+    </MudItem>
+</MudGrid>
+
+@code {
+    private DateTime _startDate = DateTime.Now.Date;
+    private DateTime _endDate = DateTime.Now.AddDays(100).Date;
+    private DateTime _oneDay = DateTime.Now.Date;
+    private Calendar _newCalendar;
+    private List<DateTime> _selectedDays = new();
+    private string _calendarName;
+    private string _calendarDescription;
+    private string _message;
+    private bool _isLoading;
+
+    protected override void OnInitialized()
+    {
+        _newCalendar = new Calendar();
+        _message = string.Empty;
+        base.OnInitialized();
+    }
+
+    private string GetDayNameDutch(DateTime date) => date.DayOfWeek switch
+    {
+        DayOfWeek.Monday => "Maandag",
+        DayOfWeek.Tuesday => "Dinsdag",
+        DayOfWeek.Wednesday => "Woensdag",
+        DayOfWeek.Thursday => "Donderdag",
+        DayOfWeek.Friday => "Vrijdag",
+        DayOfWeek.Saturday => "Zaterdag",
+        DayOfWeek.Sunday => "Zondag",
+        _ => string.Empty,
+    };
+
+    private void AddDay()
+    {
+        _message = string.Empty;
+        if (_oneDay < DateTime.Now.Date)
+        {
+            _message = "Datum kan niet in het verleden liggen";
+        }
+        else
+        {
+            if (!_selectedDays.Contains(_oneDay))
+            {
+                _selectedDays.Add(_oneDay);
+                _selectedDays.Sort();
+            }
+        }
+        StateHasChanged();
+    }
+
+    private void AddWeekends()
+    {
+        _message = string.Empty;
+        if (ValidateDates())
+        {
+            _selectedDays.Clear();
+            for (var date = _startDate; date <= _endDate; date = date.AddDays(1))
+            {
+                if (date.DayOfWeek == DayOfWeek.Saturday || date.DayOfWeek == DayOfWeek.Sunday)
+                {
+                    _selectedDays.Add(date);
+                }
+            }
+        }
+        _selectedDays.Sort();
+        StateHasChanged();
+    }
+
+    private void AddAllDays()
+    {
+        _message = string.Empty;
+        if (ValidateDates())
+        {
+            _selectedDays.Clear();
+            for (var date = _startDate; date <= _endDate; date = date.AddDays(1))
+            {
+                _selectedDays.Add(date);
+            }
+        }
+        _selectedDays.Sort();
+        StateHasChanged();
+    }
+
+    private void GoBack()
+    {
+        navManager.NavigateTo("/calendar");
+    }
+
+    private void RemoveDay(DateTime dateToRemove)
+    {
+        _message = string.Empty;
+        _selectedDays.Remove(dateToRemove);
+    }
+
+    private void RemoveAllDays()
+    {
+        _message = string.Empty;
+        _selectedDays.Clear();
+    }
+
+    private async void CreateCalendar()
+    {
+        _message = string.Empty;
+        if (Validate())
+        {
+            _isLoading = true;
+            var newCalendarRequestModel = new CalendarCreateRequestModel
+            {
+                Name = _calendarName,
+                Description = _calendarDescription,
+            };
+            var calendarResult = await _calendarService.CreateAsync(newCalendarRequestModel);
+            if (calendarResult.IsSuccess)
+            {
+                var calendarId = calendarResult.Value.Id;
+                foreach (var date in _selectedDays)
+                {
+                    var dayToAdd = new DayCreateRequestModel
+                    {
+                        Date = date,
+                        CalendarId = calendarId,
+                        Description = "Vliegdag"
+                    };
+
+                    var dayResult = await _dayService.CreateAsync(dayToAdd);
+                    if (dayResult.IsSuccess)
+                    {
+                        var dayId = dayResult.Value.Id;
+                        var partOfDays = new List<PartOfDay>();
+
+                        var partOfDayModelA = new PartOfDayCreateRequestModel
+                        {
+                            DayId = dayId,
+                            Name = "A",
+                            StartTime = "8:00",
+                            EndTime = "12:00",
+                        };
+                        var dayPartA = await _partOfDayService.CreateAsync(partOfDayModelA);
+                        if (dayPartA.IsSuccess)
+                        {
+                            await AddServicesToPartOfDay(dayPartA.Value);
+                            partOfDays.Add(dayPartA.Value);
+                        }
+
+                        var partOfDayModelB = new PartOfDayCreateRequestModel
+                        {
+                            DayId = dayId,
+                            Name = "B",
+                            StartTime = "12:00",
+                            EndTime = "16:00",
+                        };
+                        var dayPartB = await _partOfDayService.CreateAsync(partOfDayModelB);
+                        if (dayPartB.IsSuccess)
+                        {
+                            await AddServicesToPartOfDay(dayPartB.Value);
+                            partOfDays.Add(dayPartB.Value);
+                        }
+
+                        var partOfDayModelC = new PartOfDayCreateRequestModel
+                        {
+                            DayId = dayId,
+                            Name = "C",
+                            StartTime = "16:00",
+                            EndTime = "20:00",
+                        };
+                        var dayPartC = await _partOfDayService.CreateAsync(partOfDayModelC);
+                        if (dayPartC.IsSuccess)
+                        {
+                            await AddServicesToPartOfDay(dayPartC.Value);
+                            partOfDays.Add(dayPartC.Value);
+                        }
+                    }
+                }
+                navManager.NavigateTo("/calendar");
+            }
+            else
+            {
+                _message = "Er is een fout opgetreden bij het aanmaken van de kalender.";
+            }
+            _isLoading = false;
+        }
+    }
+
+    private bool Validate()
+    {
+        if (string.IsNullOrWhiteSpace(_calendarName))
+        {
+            _message = "Naam is verplicht.";
+            return false;
+        }
+        if (string.IsNullOrWhiteSpace(_calendarDescription))
+        {
+            _message = "Beschrijving is verplicht.";
+            return false;
+        }
+        if (_selectedDays.Count == 0)
+        {
+            _message = "Er zijn geen dagen geselecteerd.";
+            return false;
+        }
+        return true;
+    }
+
+    private bool ValidateDates()
+    {
+        if (_startDate < DateTime.Now.Date)
+        {
+            _message = "Startdatum kan niet in het verleden liggen.";
+            return false;
+        }
+        if (_endDate < DateTime.Now)
+        {
+            _message = "Einddatum kan niet in het verleden liggen.";
+            return false;
+        }
+        if (_endDate < _startDate)
+        {
+            _message = "Einddatum kan niet voor de startdatum liggen.";
+            return false;
+        }
+        return true;
+    }
+
+    private async Task AddServicesToPartOfDay(PartOfDay partOfDay)
+    {
+        var result = await _serviceService.GetAllAsync();
+        var services = result.Value.ToList().Where(s => s.PartOfDay == null).ToList();
+
+        if (partOfDay.Name == "C")
+        {
+            var service = services.FirstOrDefault(x => x.Name == "Bar");
+            var newService = new ServiceCreateRequestModel
+            {
+                Name = service.Name,
+                RequeredExperience = 1,
+                RequeredQualifications = service.RequiredQualifications.Select(r => r.Id).ToList(),
+                PartOfDayId = partOfDay.Id
+            };
+            var createResult = await _serviceService.CreateAsync(newService);
+            if (!createResult.IsSuccess)
+            {
+                _message = "Er is iets fout gegaan bij het toevoegen van de dienst.";
+            }
+        }
+        else
+        {
+            foreach (var service in services)
+            {
+                if (service.Id != 2)
+                {
+                    var newService = new ServiceCreateRequestModel
+                    {
+                        Name = service.Name,
+                        RequeredExperience = 1,
+                        RequeredQualifications = service.RequiredQualifications.Select(r => r.Id).ToList(),
+                        PartOfDayId = partOfDay.Id
+                    };
+                    var createResult = await _serviceService.CreateAsync(newService);
+                    if (!createResult.IsSuccess)
+                    {
+                        _message = "Er is iets fout gegaan bij het toevoegen van de dienst.";
+                    }
+                }
+            }
+        }
+    }
+}

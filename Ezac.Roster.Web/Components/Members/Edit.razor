@@ -1,0 +1,86 @@
+﻿@page "/edit/{UserId}"
+@rendermode InteractiveServer
+@using Ezac.Roster.Domain.Entities
+@using Ezac.Roster.Infrastructure.Interfaces
+@using MudBlazor
+@using Ezac.Roster.Infrastructure.Models.Member
+@inject NavigationManager navManager
+@inject IQualificationService qualificationService
+@inject IMemberService memberService
+<label class="text-danger">@_errorMessage</label>
+<MudThemeProvider />
+<EditForm Model="_member" OnValidSubmit="UpdateUserAsync" Style="max-width: 600px; margin: 0 auto;">
+    <DataAnnotationsValidator />
+    <MudGrid>
+        <MudItem xs="12" sm="7">
+            <MudCard Style="box-shadow: 0px 0px 10px rgba(0, 0, 0, 0.1);">
+                <MudCardContent>
+                    <MudSlider @bind-Value="_sliderValue"
+                               Min="0"
+                               Max="1"
+                               Step="0.05"
+                               Color="Color.Success">
+                        Inschaling: @_sliderValue.ToString("F2")
+                    </MudSlider>
+                </MudCardContent>
+                <MudCardActions>
+                    <MudButton ButtonType="ButtonType.Submit"
+                               Variant="Variant.Filled"
+                               Color="Color.Primary"
+                               Class="ml-auto">Opslaan</MudButton>
+
+                    <MudButton ButtonType="ButtonType.Button"
+                               @onclick="GoBack"
+                               Variant="Variant.Outlined"
+                               Color="Color.Secondary"
+                               Class="ms-2">Terug</MudButton>
+                </MudCardActions>
+            </MudCard>
+        </MudItem>
+    </MudGrid>
+</EditForm>
+
+
+@code {
+    private Member _member = new Member();
+    private double _sliderValue;
+    private string _errorMessage;
+
+    [Parameter]
+    public string UserId { get; set; }
+
+    protected override async Task OnInitializedAsync()
+    {
+        var memberServiceResult = await memberService.GetByIdAsync(UserId);
+        if (memberServiceResult.IsSuccess)
+        {
+            _member = memberServiceResult.Value;
+        }
+        else
+        {
+            _errorMessage = "Lid niet gevonden";
+        }
+        _sliderValue = _member.Scaling;
+    }
+
+    private async Task UpdateUserAsync()
+    {
+        MemberUpdateRequestModel memberUpdateRequestModel = new();
+        memberUpdateRequestModel.MemberId = UserId;
+        memberUpdateRequestModel.Scaling = _sliderValue;
+        if (_sliderValue == _member.Scaling)
+        {
+            _errorMessage = "Gelieve een andere waarde te kiezen";
+        }
+        else
+        {
+            await memberService.UpdateAsync(memberUpdateRequestModel);
+            GoBack();
+        }
+    }
+
+    private void GoBack()
+    {
+        navManager.NavigateTo($"/membersOverview/{_member.CalendarId}");
+    }
+}

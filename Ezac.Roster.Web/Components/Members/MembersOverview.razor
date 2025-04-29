@@ -1,0 +1,238 @@
+﻿@page "/membersOverview/{calendarId:int}"
+@rendermode InteractiveServer
+@using MudBlazor
+@using Ezac.Roster.Infrastructure.Interfaces
+@using Ezac.Roster.Domain.Entities
+@using Ezac.Roster.Web.Models
+@using Ezac.Roster.Web.Components.Calendar
+@using Ezac.Roster.Domain.Interfaces.Services
+@inject IMemberService memberService
+@inject ICalendarService calendarService
+@inject IDialogService dialogService
+@inject NavigationManager navManager
+@inject IEmailService emailService
+
+<MudThemeProvider />
+<MudContainer MaxWidth="MaxWidth.Large">
+    <MudGrid>
+        <MudItem xs="12" class="text-center mb-4">
+            <MudButton StartIcon="@Icons.Material.Filled.ArrowBack"
+                       Variant="Variant.Filled"
+                       Color="Color.Primary"
+                       OnClick="GoBack">Terug</MudButton>
+        </MudItem>
+        <MudItem xs="12" class="text-center mb-4">
+            <h3>Overzicht van de leden binnen kalender: <span style="color: blue">@_title</span></h3>
+        </MudItem>
+        <MudItem xs="12" class="text-center mb-4 text-danger">
+            @_errorMessage
+        </MudItem>
+        <MudItem xs="12" class="text-center mb-4">
+            <MudButton Variant="Variant.Filled"
+                       OnClick="GoToExcel"
+                       StartIcon="@Icons.Material.Filled.FileUpload"
+                       Color="Color.Secondary">Importeer excel</MudButton>
+            <MudButton Variant="Variant.Filled"
+                       OnClick="GoToAddUser"
+                       StartIcon="@Icons.Material.Filled.PersonAdd"
+                       Color="Color.Secondary" class="ml-2">Maak nieuwe gebruiker aan</MudButton>
+            <MudButton Variant="Variant.Filled"
+                       OnClick="SendEmailToAll"
+                       Disabled="@_isSendingEmail"
+                       StartIcon="@Icons.Material.Filled.Email"
+                       Color="Color.Secondary" class="ml-2">Verstuur elk lid een mail met de unieke link</MudButton>
+        </MudItem>
+        <MudItem xs="12">
+            <MudTable Items="@_membersInView"
+                      Dense="@_isDense"
+                      Hover="@_isHover"
+                      Bordered="@_isBordered"
+                      Striped="@_isStriped"
+                      Filter="new Func<MemberDto, bool>(MemberFilterFunc)" @bind-SelectedItem="_member">
+                <ToolBarContent>
+                    <MudTextField @bind-Value="_searchString"
+                                  Placeholder="Zoek leden op naam"
+                                  Adornment="Adornment.Start"
+                                  AdornmentIcon="@Icons.Material.Filled.Search"
+                                  IconSize="Size.Medium"></MudTextField>
+                </ToolBarContent>
+                <HeaderContent>
+                    <MudTh>Naam</MudTh>
+                    <MudTh>Email</MudTh>
+                    <MudTh>Inschaling</MudTh>
+                    <MudTh>Unieke link</MudTh>
+                    <MudTh>Acties</MudTh>
+                </HeaderContent>
+                <RowTemplate>
+                    <MudTd DataLabel="Naam"><b>@context.Name</b></MudTd>
+                    <MudTd DataLabel="Email">@context.Email</MudTd>
+                    <MudTd DataLabel="Inschaling">@context.Scaling</MudTd>
+                    <MudTd DataLabel="Unieke link">
+                        @GenerateUniqueLink(context.Id)
+                        <MudButton Variant="Variant.Text" StartIcon="@Icons.Material.Filled.ContentCopy" @onclick="() => CopyToClipboard(context.UniqueLink)">Kopiëren</MudButton>
+                    </MudTd>
+                    <MudTd DataLabel="Acties">
+                        <MudButton Variant="Variant.Filled"
+                                   @onclick="() => DeleteItem(context.Id)"
+                                   StartIcon="@Icons.Material.Filled.Delete"
+                                   Color="Color.Error"></MudButton>
+                        <MudButton Variant="Variant.Filled"
+                                   @onclick="() => GoToEditPage(context.Id)"
+                                   StartIcon="@Icons.Material.Filled.Edit"
+                                   Color="Color.Primary" class="ml-2"></MudButton>
+                    </MudTd>
+                </RowTemplate>
+                <PagerContent>
+                    <MudTablePager />
+                </PagerContent>
+            </MudTable>
+        </MudItem>
+    </MudGrid>
+</MudContainer>
+
+@code {
+    #region Properties
+    private bool _isDense = false;
+    private bool _isHover = true;
+    private bool _isStriped = true;
+    private bool _isBordered = true;
+    private string _searchString = "";
+    private MemberDto _member = null;
+    private List<Member> _members { get; set; } = new List<Member>();
+    private List<MemberDto> _membersInView = new();
+    private Calendar _calendar;
+    private const string _baseUrl = "https://localhost:7012/";
+    private string _errorMessage;
+    private string _title;
+    [Parameter]
+    public int CalendarId { get; set; }
+    private bool _isSendingEmail;
+    #endregion
+
+    protected override async Task OnInitializedAsync()
+    {
+        var calendar = await calendarService.GetByIdAsync(CalendarId);
+        if (calendar.IsSuccess)
+        {
+            _calendar = calendar.Value;
+            _title = calendar.Value.Name;
+            _members = calendar.Value.Members.ToList();
+            _membersInView = _members.Select(m => new MemberDto
+            {
+                Id = m.Id,
+                Name = m.Name,
+                Email = m.Email,
+                Scaling = m.Scaling,
+                UniqueLink = ""
+            }).ToList();
+        }
+    }
+
+    private void GoBack()
+    {
+        navManager.NavigateTo("/calendar");
+    }
+
+    private bool MemberFilterFunc(MemberDto member) => MatchesSearchString(member, _searchString);
+
+    private bool MatchesSearchString(MemberDto member, string searchString)
+    {
+        if (string.IsNullOrWhiteSpace(searchString))
+            return true;
+        if (member.Name.Contains(searchString, StringComparison.OrdinalIgnoreCase))
+            return true;
+        return false;
+    }
+
+    private void GoToExcel()
+    {
+        navManager.NavigateTo($"/excelreader/{CalendarId}");
+    }
+
+    private void GoToAddUser()
+    {
+        navManager.NavigateTo($"/add/{CalendarId}");
+    }
+
+    string GetUniqueLink(string id) => $"{_baseUrl}memberInput/{CalendarId}/{id}";
+
+    private string GenerateUniqueLink(string id)
+    {
+        var uniqueLink = $"{_baseUrl}memberInput/{CalendarId}/{id}";
+        var member = _membersInView.FirstOrDefault(m => m.Id == id);
+        return member.UniqueLink = uniqueLink;
+    }
+
+    private async Task DeleteItem(string id)
+    {
+        if (!await DialogInfo())
+            return;
+        await memberService.DeleteAsync(id);
+        var membersResult = await memberService.GetAllAsync();
+
+        if (membersResult.IsSuccess)
+        {
+            _members = membersResult.Value.ToList();
+            _membersInView = _members.Select(m => new MemberDto
+            {
+                Id = m.Id,
+                Name = m.Name,
+                Email = m.Email,
+                Scaling = m.Scaling,
+                UniqueLink = ""
+            }).ToList();
+        }
+        else
+        {
+            _errorMessage = "Geen gebruikers gevonden";
+        }
+        StateHasChanged();
+    }
+
+    private async Task<bool> DialogInfo()
+    {
+        var parameters = new DialogParameters<Dialog>();
+        parameters.Add(x => x.ContentText, "Ben je zeker dat je dit wilt verwijderen");
+        parameters.Add(x => x.ButtonText, "Verwijder");
+        parameters.Add(x => x.Color, Color.Error);
+
+        var options = new DialogOptions() { CloseButton = true, MaxWidth = MaxWidth.ExtraSmall };
+
+        IDialogReference dialogReference = await dialogService.ShowAsync<Dialog>("Verwijder", parameters, options);
+
+        DialogResult result = await dialogReference.Result;
+        if (result.Canceled)
+            return false;
+        return result.Data is bool;
+    }
+
+    private async Task SendEmailToAll()
+    {
+        _isSendingEmail = true;
+        List<EmailToSend> emailsToSend = new List<EmailToSend>();
+        foreach (MemberDto member in _membersInView)
+        {
+            emailsToSend.Add(new EmailToSend(member.Email, "Link voor jouw kalender", emailService.MessageWithUniqueLink(GetUniqueLink(member.Id))));
+        }
+        if (!_membersInView.Any())
+        {
+            _errorMessage = "Geen gebruikers aanwezig";
+        }
+        else
+        {
+            await emailService.SendEmails(emailsToSend);
+        }
+        _isSendingEmail = false;
+    }
+
+    private void CopyToClipboard(string link)
+    {
+        var js = $"navigator.clipboard.writeText('{link}')";
+        navManager.NavigateTo($"javascript:{js}", true);
+    }
+
+    public void GoToEditPage(string id)
+    {
+        navManager.NavigateTo($"/edit/{id}");
+    }
+}

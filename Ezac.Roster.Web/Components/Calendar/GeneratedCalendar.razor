@@ -1,0 +1,25 @@
+﻿@page "/calendar/{id:int}"
+@using Ezac.Roster.Domain.Interfaces.Services
+@using Ezac.Roster.Domain.Entities
+@inject IGenerateService generateService
+@inject NavigationManager navigation
+
+@code {
+    [Parameter]
+    public int Id { get; set; }
+    private List<PlannedService> _plannedServices = new();
+
+    override protected async Task OnInitializedAsync()
+    {
+       
+            var result = await generateService.GenerateCalendar(Id);
+            if (result.IsSuccess)
+            {
+                navigation.NavigateTo($"/calendarOverview/{Id}");
+            }
+            else
+            {
+                navigation.NavigateTo("/error");
+            }
+    }
+}

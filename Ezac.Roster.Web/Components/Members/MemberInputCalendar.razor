@@ -1,0 +1,270 @@
+﻿@page "/memberInput/{calendarId:int}/{userId}"
+@rendermode InteractiveServer
+@using Ezac.Roster.Domain.Entities
+@using Ezac.Roster.Domain.Models.Preference
+@using Ezac.Roster.Domain.Interfaces.Repositories
+@using Ezac.Roster.Domain.Interfaces.Services
+@using Ezac.Roster.Infrastructure.Interfaces
+@inject IDayRepository dayRepository
+@inject ICalendarRepository calendarRepository
+@inject IMemberRepository memberRepository
+@inject IPartOfDayRepository partOfDayRepository
+@inject IPreferenceRepository preferenceRepository
+@inject IPreferenceService preferenceService
+
+@inject IDayService dayService
+@inject ICalendarService calendarService
+@inject IMemberService memberService
+@inject IPartOfDayService partOfDayService
+@inject IPreferenceService preferenceService
+@inject NavigationManager Navigation
+
+<div class="modal fade show" tabindex="-1" role="dialog" style="display:@(showModal ? "block" : "none");" aria-labelledby="exampleModalLabel" aria-hidden="true">
+    <div class="modal-dialog" role="document">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="exampleModalLabel">Instructies</h5>
+                <button type="button" class="close" @onclick="CloseModal" aria-label="Close">
+                    <span aria-hidden="true">&times;</span>
+                </button>
+            </div>
+            <div class="modal-body">
+                <p>Welkom! Op deze pagina kunt u uw beschikbaarheid en servicevoorkeuren aangeven. Volg de onderstaande stappen:</p>
+                <ol>
+                    <li>Voor elke dag kunt u aangeven of u beschikbaar bent door de beschikbaarheidsoptie te selecteren.</li>
+                    <li>Kies uw servicevoorkeur indien u beschikbaar bent.</li>
+                    <li>Klik op "Hele dag veranderen" om de beschikbaarheid van de hele dag in één keer te wijzigen.</li>
+                    <li>Klik op "Submit" om uw keuzes op te slaan.</li>
+                </ol>
+                <p>Als u vragen heeft, neem dan contact op met de ondersteuning.</p>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-primary" @onclick="CloseModal">Begrepen</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<EditForm Model="@Days" OnValidSubmit="ProcessMemberInput">
+    <table class="table table-striped table-bordered">
+        <thead class="thead-dark">
+            <tr>
+                <th>Datum</th>
+                <th>Beschikbaarheid en servicevoorkeuren</th>
+            </tr>
+        </thead>
+        <tbody>
+            @foreach (var day in PaginatedDays)
+            {
+                <tr>
+                    <td>
+                        @GetDayNameDutch(day.Date) @day.Date.ToShortDateString()
+                        <button type="button" class="form-control mt-2" @onclick="() => ChangeDayAvailablility(day.PartOfDays.ToList())">Hele dag veranderen</button>
+                    </td>
+                    <td>
+                        <div class="row">
+                            @foreach (var partOfDay in day.PartOfDays)
+                            {
+                                <div class="card" style="width: 18rem; @(partOfDay.IsAvailable ? "" : "background-color: #fc3236;")">
+                                    <div class="card-body">
+                                        <label class="mb-2">Beschikbaarheid dagdeel @partOfDay.Name: </label>
+                                        <select class="form-control" @onchange="@(e => ChangeAvailability(e, partOfDay))">
+                                            @if (partOfDay.IsAvailable)
+                                            {
+                                                <option value="true" selected>Aanwezig</option>
+                                                <option value="false">Afwezig</option>
+                                            }
+                                            else
+                                            {
+                                                <option value="true">Aanwezig</option>
+                                                <option value="false" selected>Afwezig</option>
+                                            }
+                                        </select>
+                                        @if (partOfDay.IsAvailable)
+                                        {
+                                            <label>Servicevoorkeur:</label>
+                                            <select class="form-control mt-2" @onchange="@(e => ChangeServicePreference(e, partOfDay))">
+                                                <option value="">Geen</option>
+                                                @foreach (var serviceGroup in partOfDay.Services.GroupBy(s => s.Name))
+                                                {
+                                                    var service = serviceGroup.First();
+                                                    @foreach (var qualification in Member.Qualifications)
+                                                    {
+                                                        if (qualification.Services.Any(s => s.Id == service.Id) && qualification.Experience >= service.RequeredExperience)
+                                                        {
+                                                            <option value="@service.Id">@service.Name</option>
+                                                        }
+                                                    }
+                                                }
+                                            </select>
+                                        }
+                                    </div>
+                                </div>
+                            }
+                        </div>
+                    </td>
+                </tr>
+            }
+        </tbody>
+    </table>
+    <div class="d-flex justify-content-between mt-2">
+        <button type="button" class="btn btn-secondary" @onclick="PreviousPage" disabled="@(currentPage == 1)">Vorige</button>
+        <button type="button" class="btn btn-secondary" @onclick="NextPage" disabled="@(currentPage == totalPages)">Volgende</button>
+    </div>
+    <button type="submit" class="btn btn-primary mt-2">Verzenden</button>
+</EditForm>
+
+@code {
+    private List<Day> Days { get; set; } = new();
+    private List<Day> PaginatedDays { get; set; } = new();
+    private Member Member { get; set; } = new();
+    private bool showModal = true;
+    private int currentPage = 1;
+    private int pageSize = 5;
+    private int totalPages => (int)Math.Ceiling(Days.Count / (double)pageSize);
+
+    [Parameter]
+    public int CalendarId { get; set; }
+    [Parameter]
+    public string UserId { get; set; }
+
+    override protected async Task OnInitializedAsync()
+    {
+        var calendarFromDb = await calendarRepository.GetByIdAsync(CalendarId);
+
+        Days = calendarFromDb.Days.ToList();
+
+        Days.ForEach(pd => pd.PartOfDays.ToList().ForEach(pod => pod.IsAvailable = true));
+        Days.ForEach(pd => pd.PartOfDays.ToList().ForEach(pod => pod.ServicePreferenceId = null));
+
+        var memberResult = await memberService.GetByIdAsync(UserId);
+        if (memberResult.IsSuccess)
+        {
+            Member = memberResult.Value;
+        }
+        else
+        {
+            Navigation.NavigateTo("/NotFound");
+        }
+        var preferences = await preferenceService.GetAllAsync();
+        var p = preferences.Value.Where(p => p.MemberId == Member.Id && p.CalendarId == CalendarId).ToList();
+        if (p.Any())
+        {
+            Navigation.NavigateTo("/oops");
+        }
+        UpdatePaginatedDays();
+        StateHasChanged();
+    }
+
+    private void UpdatePaginatedDays()
+    {
+        PaginatedDays = Days.Skip((currentPage - 1) * pageSize).Take(pageSize).ToList();
+    }
+
+    private void PreviousPage()
+    {
+        if (currentPage > 1)
+        {
+            currentPage--;
+            UpdatePaginatedDays();
+        }
+    }
+
+    private void NextPage()
+    {
+        if (currentPage < totalPages)
+        {
+            currentPage++;
+            UpdatePaginatedDays();
+        }
+    }
+
+    public async Task ProcessMemberInput()
+    {
+        bool isSuccess = true;
+        string message = "Succesvol verwerkt!";
+
+        foreach (var day in Days)
+        {
+            foreach (var partOfDay in day.PartOfDays)
+            {
+                if (partOfDay.IsAvailable)
+                {
+                    var preferenceCreateRequest = new PreferenceCreateRequestModel
+                    {
+                        MemberId = Member.Id,
+                        ServiceId = partOfDay.ServicePreferenceId,
+                        PartOfDayId = partOfDay.Id,
+                        CalendarId = CalendarId
+                    };
+
+                    var result = await preferenceService.CreateAsync(preferenceCreateRequest);
+
+                    if (!result.IsSuccess)
+                    {
+                        isSuccess = false;
+                        message = $"Fout bij het aanmaken van voorkeur voor PartOfDay {partOfDay.Id}: {string.Join(", ", result.Errors)}";
+                        break;
+                    }
+                }
+            }
+            if (!isSuccess)
+            {
+                break;
+            }
+        }
+
+        Navigation.NavigateTo($"/result/{isSuccess}/{message}");
+    }
+
+    void ChangeAvailability(ChangeEventArgs e, PartOfDay partOfDay)
+    {
+        partOfDay.IsAvailable = bool.Parse(e.Value.ToString());
+    }
+
+    void ChangeDayAvailablility(List<PartOfDay> partOfDays)
+    {
+        if (partOfDays.First().IsAvailable == true)
+        {
+            foreach (var partOfDay in partOfDays)
+            {
+                partOfDay.IsAvailable = false;
+            }
+        }
+        else
+        {
+            foreach (var partOfDay in partOfDays)
+            {
+                partOfDay.IsAvailable = true;
+            }
+        }
+        StateHasChanged();
+    }
+    void ChangeServicePreference(ChangeEventArgs e, PartOfDay partOfDay)
+    {
+        if (e.Value.ToString() == "")
+        {
+            partOfDay.ServicePreferenceId = null;
+        }
+        else
+        {
+            partOfDay.ServicePreferenceId = int.Parse(e.Value.ToString());
+        }
+    }
+    private string GetDayNameDutch(DateTime date) => date.DayOfWeek switch
+    {
+        DayOfWeek.Monday => "Maandag",
+        DayOfWeek.Tuesday => "Dinsdag",
+        DayOfWeek.Wednesday => "Woensdag",
+        DayOfWeek.Thursday => "Donderdag",
+        DayOfWeek.Friday => "Vrijdag",
+        DayOfWeek.Saturday => "Zaterdag",
+        DayOfWeek.Sunday => "Zondag",
+        _ => string.Empty,
+    };
+
+    private void CloseModal()
+    {
+        showModal = false;
+    }
+}

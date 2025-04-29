@@ -1,0 +1,114 @@
+﻿@page  "/calendar/addservice/{partOfDayId:int}"
+@using Ezac.Roster.Infrastructure.Interfaces
+@using Ezac.Roster.Domain.Entities
+@using Ezac.Roster.Domain.Models.Calendar
+@using Ezac.Roster.Infrastructure.Models.Service
+@inject IPartOfDayService partOfDayService
+@inject IServiceService serviceService
+@inject NavigationManager navigationManager
+@rendermode InteractiveServer
+<h3>Hier kan je nog extra diensten toevoegen</h3>
+<MudThemeProvider />
+<MudGrid>
+    <MudItem xs="12" sm="7">
+        <MudCard Style="box-shadow: 0px 0px 10px rgba(0, 0, 0, 0.1);">
+            <MudCardContent>
+                <MudText Typo="Typo.h6" Color="Color.Error" Class="text-center">@_errorMessage</MudText>
+
+                @foreach (var serviceCheckBox in _serviceCheckBox)
+                {
+                    <MudCheckBox @bind-Value="serviceCheckBox.IsChecked" Label="@serviceCheckBox.Name"></MudCheckBox>
+                }
+
+            </MudCardContent>
+            <MudCardActions>
+                <MudButton ButtonType="ButtonType.Button"
+                           Variant="Variant.Filled"
+                           OnClick="SubmitAsync"
+                           Color="Color.Primary"
+                           Class="ml-auto">Opslaan</MudButton>
+
+                <MudButton ButtonType="ButtonType.Button"
+                           @onclick="GoBack"
+                           Variant="Variant.Outlined"
+                           Color="Color.Primary"
+                           Class="ms-2">Terug</MudButton>
+            </MudCardActions>
+        </MudCard>
+    </MudItem>
+</MudGrid>
+@code {
+    [Parameter]
+    public int PartOfDayId { get; set; }
+
+    private PartOfDay _partOfDay;
+    private List<ServiceCheckBoxModel> _serviceCheckBox = new();
+
+    private string _errorMessage;
+
+    protected override async Task OnInitializedAsync()
+    {
+        var result = await partOfDayService.GetByIdAsync(PartOfDayId);
+        if (!result.IsSuccess)
+        {
+            _errorMessage = "Dagdeel niet gevonden";
+            return;
+        }
+        _partOfDay = result.Value;
+        var servicesResult = await serviceService.GetAllAsync();
+        var services = servicesResult.Value.ToList().Where(s => s.PartOfDayId == null).ToList();
+        foreach(var service in services)
+        {
+            if(!_partOfDay.Services.Any(s => s.Id== service.Id))
+            {
+                _serviceCheckBox.Add(new ServiceCheckBoxModel
+                {
+                    ServiceId = service.Id,
+                    Name = service.Name,
+                    IsChecked = false
+                });
+            }
+        }
+    }
+    private void GoBack()
+    {
+        navigationManager.NavigateTo($"/calendar/edit/{_partOfDay.Day.CalendarId}");
+    }
+    private async Task SubmitAsync()
+    {
+
+        var result = await partOfDayService.GetByIdAsync(PartOfDayId);
+        if (!result.IsSuccess)
+        {
+            _errorMessage = "Dagdeel niet gevonden";
+            return;
+        }
+        _partOfDay = result.Value;
+        var servicesResult = await serviceService.GetAllAsync();
+        var services = servicesResult.Value.ToList();
+
+        foreach (var service in services)
+        {
+            var serviceCheckBox = _serviceCheckBox.FirstOrDefault(x => x.ServiceId == service.Id);
+            if (serviceCheckBox != null && serviceCheckBox.IsChecked)
+            {
+                var newService = new ServiceCreateRequestModel
+                {
+                    Name = service.Name,
+                    RequeredExperience = 1,
+                    RequeredQualifications = service.RequiredQualifications.Select(r => r.Id).ToList(),
+                    PartOfDayId = PartOfDayId
+                };
+                var createResult = await serviceService.CreateAsync(newService);
+                if (!createResult.IsSuccess)
+                {
+                    _errorMessage = "Er is iets fout gegaan";
+                }
+            }
+        }
+
+        navigationManager.NavigateTo($"/calendar/edit/{_partOfDay.Day.CalendarId}");
+
+    }
+}
+

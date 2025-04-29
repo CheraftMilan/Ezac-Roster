@@ -1,0 +1,101 @@
+﻿@page "/calendar/removeservice/{partOfDayId:int}"
+
+@using Ezac.Roster.Infrastructure.Interfaces
+@using Ezac.Roster.Domain.Models.Calendar
+@using Ezac.Roster.Domain.Entities
+@using Ezac.Roster.Domain.Models.Service
+@inject IPartOfDayService partOfDayService
+@inject IServiceService serviceService
+@inject NavigationManager navigationManager
+@rendermode InteractiveServer
+<MudThemeProvider />
+<h3>Selecteer de diensten die je wilt verwijderen van dit dagdeel</h3>
+<MudGrid>
+    <MudItem xs="12" sm="7">
+        <MudCard Style="box-shadow: 0px 0px 10px rgba(0, 0, 0, 0.1);">
+            <MudCardContent>
+                @if (_partOfDay != null)
+                {
+                    <h6>Dagdeel: @_partOfDay.Name</h6>
+                    @if (_partOfDay.Services == null || _partOfDay.Services.Count() == 0)
+                    {
+                        <p>Er zijn geen diensten toegevoegd aan dit dagdeel</p>
+                    }
+                    else
+                    {
+
+                        @foreach (var serviceCheckBox in _serviceCheckBoxes)
+                        {
+                            <MudCheckBox @bind-Value="serviceCheckBox.IsChecked" Label="@serviceCheckBox.Name"></MudCheckBox>
+                        }
+                    }
+                }
+                else
+                {
+                    <p>Dagdeel niet gevonden</p>
+                }
+
+            </MudCardContent>
+            <MudCardActions>
+                <MudButton ButtonType="ButtonType.Button"
+                           Variant="Variant.Filled"
+                           OnClick="SubmitAsync"
+                           Color="Color.Primary"
+                           Class="ml-auto">Opslaan</MudButton>
+
+                <MudButton ButtonType="ButtonType.Button"
+                           @onclick="GoBack"
+                           Variant="Variant.Outlined"
+                           Color="Color.Primary"
+                           Class="ms-2">Terug</MudButton>
+            </MudCardActions>
+        </MudCard>
+    </MudItem>
+</MudGrid>
+
+
+
+@code {
+    [Parameter]
+    public int PartOfDayId { get; set; }
+    private PartOfDay _partOfDay;
+    private List<ServiceCheckBoxModel> _serviceCheckBoxes = new();
+
+    protected override async Task OnInitializedAsync()
+    {
+        var partOfDay = await partOfDayService.GetByIdAsync(PartOfDayId);
+        if (!partOfDay.IsSuccess)
+        {
+            navigationManager.NavigateTo($"/calendar/edit/{partOfDay.Value.Day.CalendarId}");
+        }
+        _partOfDay = partOfDay.Value;
+        _serviceCheckBoxes = _partOfDay.Services.Select(x => new ServiceCheckBoxModel
+        {
+            ServiceId = x.Id,
+            Name = x.Name,
+            IsChecked = false
+        }).ToList();
+    }
+    private void GoBack()
+    {
+        navigationManager.NavigateTo($"/calendar/edit/{_partOfDay.Day.CalendarId}");
+    }
+    private async Task SubmitAsync()
+    {
+        var partOfDay = await partOfDayService.GetByIdAsync(PartOfDayId);
+        if (!partOfDay.IsSuccess)
+        {
+            navigationManager.NavigateTo($"/calendar/edit/{partOfDay.Value.Day.CalendarId}");
+        }
+        var services = partOfDay.Value.Services.ToList();
+        foreach (var service in services)
+        {
+            var serviceCheckBox = _serviceCheckBoxes.FirstOrDefault(x => x.ServiceId == service.Id);
+            if (serviceCheckBox != null && serviceCheckBox.IsChecked)
+            {
+                var deleteResult = await serviceService.DeleteAsync(serviceCheckBox.ServiceId);
+            }
+        }
+        navigationManager.NavigateTo($"/calendar/edit/{partOfDay.Value.Day.CalendarId}");
+    }
+}

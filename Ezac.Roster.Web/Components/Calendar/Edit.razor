@@ -1,0 +1,163 @@
+﻿@page "/calendar/edit/{calendarId:int}"
+
+<MudThemeProvider />
+<MudDialogProvider />
+<div class="container mt-5">
+    <MudButton ButtonType="ButtonType.Button"
+               @onclick="GoBack"
+               Variant="Variant.Outlined"
+               Color="Color.Primary"
+               Class="ms-2">Terug</MudButton>
+    <h3 class="text-center">Bewerk kalender: @_calendarName</h3>
+    <span class="alert-danger">@_errorMessage</span>
+
+    <table class="table table-bordered table-striped">
+        <thead class="thead-dark">
+            <tr>
+                <th>Datum</th>
+                <th>Dagdeel</th>
+                <th>Diensten</th>
+                <th>Acties</th>
+            </tr>
+        </thead>
+        <tbody>
+            @foreach (var day in _days)
+            {
+                @foreach (var partOfDay in day.PartOfDays)
+                {
+                    <tr>
+                        <td>
+                            @GetDayNameDutch(day.Date) @day.Date.ToShortDateString()
+                        </td>
+                        <td>@partOfDay.Name:  @partOfDay.StartTime - @partOfDay.EndTime</td>
+                        <td>
+                            <ul class="list-unstyled mb-0">
+                                @foreach (var service in partOfDay.Services)
+                                {
+                                    <li>@service.Name</li>
+                                }
+                            </ul>
+                        </td>
+                        <td>
+                            <button @onclick="() => AddPartOfDay(partOfDay.DayId)" class="btn btn-success btn-sm ml-2">Voeg een dagdeel toe</button>
+                            <button @onclick="() => DeleteItemAsync(partOfDay.Id)" class="btn btn-danger btn-sm ml-2">Verwijder dit dagdeel</button>
+                            <button @onclick="() => AddServicesToPartOfDay(partOfDay.Id)" class="btn btn-success btn-sm">Voeg diensten toe</button>
+                            <button @onclick="() => EditWeightAndExperience(partOfDay.Id)" class="btn btn-warning btn-sm">Bewerk diensten</button>
+                            <button @onclick="() => RemoveServices(partOfDay.Id)" class="btn btn-danger btn-sm">Verwijder diensten</button>
+                        </td>
+                    </tr>
+                }
+            }
+        </tbody>
+    </table>
+
+</div>
+
+@using Ezac.Roster.Domain.Entities
+@using Ezac.Roster.Infrastructure.Interfaces
+@inject ICalendarService calendarService
+@inject IPartOfDayService partOfDayService
+@inject IServiceService serviceService
+@inject IDialogService DialogService
+@inject NavigationManager navManager
+@rendermode InteractiveServer
+@code {
+
+    [Parameter]
+    public int CalendarId { get; set; }
+
+    private Calendar _calendar;
+    private string _calendarName;
+    private List<Day> _days = new();
+    private string _errorMessage;
+
+
+    protected override async Task OnInitializedAsync()
+    {
+        var calendar = await calendarService.GetByIdAsync(CalendarId);
+        if (calendar.IsSuccess)
+        {
+            _calendar = calendar.Value;
+            _calendarName = _calendar.Name;
+            _days = _calendar.Days.ToList();
+        }
+    }
+    private string GetDayNameDutch(DateTime date) => date.DayOfWeek switch
+    {
+        DayOfWeek.Monday => "Maandag",
+        DayOfWeek.Tuesday => "Dinsdag",
+        DayOfWeek.Wednesday => "Woensdag",
+        DayOfWeek.Thursday => "Donderdag",
+        DayOfWeek.Friday => "Vrijdag",
+        DayOfWeek.Saturday => "Zaterdag",
+        DayOfWeek.Sunday => "Zondag",
+        _ => string.Empty,
+    };
+    private void GoBack()
+    {
+        navManager.NavigateTo("/calendar");
+    }
+
+    private void AddPartOfDay(int id)
+    {
+        navManager.NavigateTo($"/calendar/addpartofday/{CalendarId}/{id}");
+    }
+
+    private void AddServicesToPartOfDay(int id)
+    {
+        navManager.NavigateTo($"/calendar/addservice/{id}");
+    }
+    private void EditWeightAndExperience(int id)
+    {
+        navManager.NavigateTo($"/calendar/editservice/{id}");
+    }
+    private void RemoveServices(int id)
+    {
+        navManager.NavigateTo($"/calendar/removeservice/{id}");
+    }
+
+    private async Task DeleteItemAsync(int id)
+    {
+
+        if (!await DialogInfoAsync())
+            return;
+        var services = await partOfDayService.GetByIdAsync(id);
+        if (services.IsSuccess)
+        {
+            foreach (var service in services.Value.Services)
+            {
+                await serviceService.DeleteAsync(service.Id);
+            }
+        }
+        await partOfDayService.DeleteAsync(id);
+        var calendarsResult = await calendarService.GetByIdAsync(CalendarId);
+
+        if (calendarsResult.IsSuccess)
+        {
+            _calendar = calendarsResult.Value;
+            _days = _calendar.Days.ToList();
+            _calendarName = _calendar.Name;
+        }
+        else
+        {
+            _errorMessage = "Geen kalender gevonden";
+        }
+        StateHasChanged();
+    }
+    private async Task<bool> DialogInfoAsync()
+    {
+        var parameters = new DialogParameters<Dialog>();
+        parameters.Add(x => x.ContentText, "Ben je zeker dat je dit wilt verwijderen");
+        parameters.Add(x => x.ButtonText, "Verwijder");
+        parameters.Add(x => x.Color, Color.Error);
+
+        var options = new DialogOptions() { CloseButton = true, MaxWidth = MaxWidth.Medium };
+
+        IDialogReference dialogReference = await DialogService.ShowAsync<Dialog>("Verwijder", parameters, options);
+
+        DialogResult result = await dialogReference.Result;
+        if (result.Canceled)
+            return false;
+        return result.Data is bool;
+    }
+}

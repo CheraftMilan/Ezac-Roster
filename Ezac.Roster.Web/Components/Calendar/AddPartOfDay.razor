@@ -1,0 +1,252 @@
+﻿@page "/calendar/addpartofday/{calendarId:int}/{dayId:int}"
+
+@using Ezac.Roster.Infrastructure.Interfaces
+@using Ezac.Roster.Infrastructure.Models.PartOfDay
+@using Domain.Models.Service
+@using Ezac.Roster.Infrastructure.Models.Service
+@inject IPartOfDayService partOfDayService
+@inject IServiceService serviceService
+@inject NavigationManager navigationManager
+@rendermode InteractiveServer
+
+<MudThemeProvider />
+<MudGrid>
+    <MudItem xs="12" sm="7">
+        <MudCard Style="box-shadow: 0px 0px 10px rgba(0, 0, 0, 0.1);">
+            <MudCardContent>
+                <MudText Typo="Typo.h6" Color="Color.Error" Class="text-center">@_errorMessage</MudText>
+                <MudTextField Placeholder="Naam"
+                              Label="Naam van het dagdeel (bijv. Ochtend)"
+                              HelperText="Voer de naam van het dagdeel in, bijvoorbeeld 'Ochtend'."
+                              Class="mt-5"
+                              @bind-Value="_partOfDayName"
+                              Variant="Variant.Outlined"
+                              Style="width: 100%;" />
+
+                <MudTextField Placeholder="Starttijd (bijv. 15:00)"
+                              Label="Starttijd (bijv. 15:00)"
+                              HelperText="Voer de starttijd in het formaat HH:mm in, bijvoorbeeld '15:00'."
+                              Class="mt-5"
+                              @bind-Value="_startTime"
+                              Variant="Variant.Outlined"
+                              Style="width: 100%;" />
+
+                <MudTextField Placeholder="Eindtijd (bijv. 18:00)"
+                              Label="Eindtijd (bijv. 18:00)"
+                              HelperText="Voer de eindtijd in het formaat HH:mm in, bijvoorbeeld '18:00'."
+                              Class="mt-5"
+                              @bind-Value="_endTime"
+                              Variant="Variant.Outlined"
+                              Style="width: 100%;" />
+
+                <MudTooltip Text="Selecteer als lieren nodig is" Arrow="true" Placement="Placement.Top">
+                    <MudCheckBox @bind-Value="_isCheckedLieren"
+                                 Label="Lieren"
+                                 Class="mt-3"></MudCheckBox>
+                </MudTooltip>
+
+                <MudTooltip Text="Selecteer als instructeur nodig is" Arrow="true" Placement="Placement.Top">
+                    <MudCheckBox @bind-Value="_isCheckedInstructeur"
+                                 Label="Instructeur"
+                                 Class="mt-2"></MudCheckBox>
+                </MudTooltip>
+
+                <MudTooltip Text="Selecteer als DDI instructeur nodig is" Arrow="true" Placement="Placement.Top">
+                    <MudCheckBox @bind-Value="_isCheckedDdi"
+                                 Label="DDI instructeur"
+                                 Class="mt-2"></MudCheckBox>
+                </MudTooltip>
+
+                <MudTooltip Text="Selecteer als start officier nodig is" Arrow="true" Placement="Placement.Top">
+                    <MudCheckBox @bind-Value="_isCheckedStartOfficier"
+                                 Label="Start officier"
+                                 Class="mt-2"></MudCheckBox>
+                </MudTooltip>
+
+                <MudTooltip Text="Selecteer als bar service nodig is" Arrow="true" Placement="Placement.Top">
+                    <MudCheckBox @bind-Value="_isCheckedBar"
+                                 Label="Bar"
+                                 Class="mt-2"></MudCheckBox>
+                </MudTooltip>
+            </MudCardContent>
+            <MudCardActions>
+                <MudButton ButtonType="ButtonType.Button"
+                           Variant="Variant.Filled"
+                           OnClick="SubmitAsync"
+                           Color="Color.Primary"
+                           Class="ml-auto">Opslaan</MudButton>
+
+                <MudButton ButtonType="ButtonType.Button"
+                           @onclick="GoBack"
+                           Variant="Variant.Outlined"
+                           Color="Color.Primary"
+                           Class="ms-2">Terug</MudButton>
+            </MudCardActions>
+        </MudCard>
+    </MudItem>
+</MudGrid>
+
+@code {
+    [Parameter]
+    public int CalendarId { get; set; }
+    [Parameter]
+    public int DayId { get; set; }
+
+    private bool _isCheckedLieren;
+    private bool _isCheckedDdi;
+    private bool _isCheckedBar;
+    private bool _isCheckedInstructeur;
+    private bool _isCheckedStartOfficier;
+    private string _partOfDayName;
+    private string _startTime;
+    private string _endTime;
+    private string _errorMessage;
+
+    private bool Validate()
+    {
+        DateTime parsedEndTime;
+        DateTime parsedStartTime;
+        if (string.IsNullOrWhiteSpace(_partOfDayName))
+        {
+            _errorMessage = "Naam is verplicht. Voer een naam voor het dagdeel in.";
+            return false;
+        }
+        if (string.IsNullOrWhiteSpace(_startTime))
+        {
+            _errorMessage = "Starttijd is verplicht. Voer een starttijd in.";
+            return false;
+        }
+        if (!DateTime.TryParseExact(_startTime, "HH:mm", null, System.Globalization.DateTimeStyles.None, out parsedStartTime))
+        {
+            _errorMessage = "De starttijd is niet in het juiste formaat! Gebruik het formaat HH:mm, bijvoorbeeld '15:00'.";
+            return false;
+        }
+
+        if (string.IsNullOrWhiteSpace(_endTime))
+        {
+            _errorMessage = "Eindtijd is verplicht. Voer een eindtijd in.";
+            return false;
+        }
+        if (!DateTime.TryParseExact(_endTime, "HH:mm", null, System.Globalization.DateTimeStyles.None, out parsedEndTime))
+        {
+            _errorMessage = "De eindtijd is niet in het juiste formaat! Gebruik het formaat HH:mm, bijvoorbeeld '18:00'.";
+            return false;
+        }
+        if (parsedStartTime >= parsedEndTime)
+        {
+            _errorMessage = "De starttijd kan niet vroeger of gelijk zijn aan de eindtijd! Zorg ervoor dat de starttijd voor de eindtijd ligt.";
+            return false;
+        }
+        return true;
+    }
+
+    private void GoBack()
+    {
+        navigationManager.NavigateTo($"/calendar/edit/{CalendarId}");
+    }
+
+    private async Task SubmitAsync()
+    {
+        if (Validate())
+        {
+            var newPartOfDay = new PartOfDayCreateRequestModel
+            {
+                DayId = DayId,
+                Name = _partOfDayName,
+                StartTime = _startTime,
+                EndTime = _endTime,
+            };
+            var partOfDayServiceResult = await partOfDayService.CreateAsync(newPartOfDay);
+            if (!partOfDayServiceResult.IsSuccess)
+            {
+                _errorMessage = "Er is iets fout gegaan tijdens het opslaan van het dagdeel!";
+            }
+            else
+            {
+                var servicesResult = await serviceService.GetAllAsync();
+                var services = servicesResult.Value.ToList().Where(s => s.PartOfDayId == null).ToList();
+                var partOfDayId = partOfDayServiceResult.Value.Id;
+                foreach (var service in services)
+                {
+                    if (_isCheckedLieren && service.Name == "Lieren")
+                    {
+                        var newServicelieren = new ServiceCreateRequestModel
+                        {
+                            Name = service.Name,
+                            RequeredExperience = 1,
+                            PartOfDayId = partOfDayId,
+                            RequeredQualifications = service.RequiredQualifications.Select(r => r.Id)
+                        };
+                        var lierenResult = await serviceService.CreateAsync(newServicelieren);
+                        if (!lierenResult.IsSuccess)
+                        {
+                            _errorMessage = "Er is iets fout gegaan bij het toevoegen van de Lieren dienst.";
+                        }
+                    }
+                    if (_isCheckedDdi && service.Name == "DDI Instructeur")
+                    {
+                        var newServiceDDI = new ServiceCreateRequestModel
+                        {
+                            Name = service.Name,
+                            RequeredExperience = 1,
+                            RequeredQualifications = service.RequiredQualifications.Select(r => r.Id).ToList(),
+                            PartOfDayId = partOfDayId
+                        };
+                        var ddiResult = await serviceService.CreateAsync(newServiceDDI);
+                        if (!ddiResult.IsSuccess)
+                        {
+                            _errorMessage = "Er is iets fout gegaan bij het toevoegen van de DDI Instructeur dienst.";
+                        }
+
+                    }
+                    if (_isCheckedBar && service.Name == "Bar")
+                    {
+                        var newServiceBar = new ServiceCreateRequestModel
+                        {
+                            Name = service.Name,
+                            RequeredExperience = 1,
+                            RequeredQualifications = service.RequiredQualifications.Select(r => r.Id).ToList(),
+                            PartOfDayId = partOfDayId
+                        };
+                        var barResult = await serviceService.CreateAsync(newServiceBar);
+                        if (!barResult.IsSuccess)
+                        {
+                            _errorMessage = "Er is iets fout gegaan bij het toevoegen van de Bar dienst.";
+                        }
+                    }
+                    if (_isCheckedInstructeur && service.Name == "Instructeur")
+                    {
+                        var newServiceInstructeur = new ServiceCreateRequestModel
+                        {
+                            Name = service.Name,
+                            RequeredExperience = 1,
+                            RequeredQualifications = service.RequiredQualifications.Select(r => r.Id).ToList(),
+                            PartOfDayId = partOfDayId
+                        };
+                        var instructeurResult = await serviceService.CreateAsync(newServiceInstructeur);
+                        if (!instructeurResult.IsSuccess)
+                        {
+                            _errorMessage = "Er is iets fout gegaan bij het toevoegen van de Instructeur dienst.";
+                        }
+                    }
+                    if (_isCheckedStartOfficier && service.Name == "Startofficier")
+                    {
+                        var newServiceSO = new ServiceCreateRequestModel
+                        {
+                            Name = service.Name,
+                            RequeredExperience = 1,
+                            RequeredQualifications = service.RequiredQualifications.Select(r => r.Id).ToList(),
+                            PartOfDayId = partOfDayId
+                        };
+                        var soResult = await serviceService.CreateAsync(newServiceSO);
+                        if (!soResult.IsSuccess)
+                        {
+                            _errorMessage = "Er is iets fout gegaan bij het toevoegen van de Startofficier dienst.";
+                        }
+                    }
+                }
+                navigationManager.NavigateTo($"/calendar/edit/{CalendarId}");
+            }
+        }
+    }
+}

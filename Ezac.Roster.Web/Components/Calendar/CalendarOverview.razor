@@ -1,0 +1,191 @@
+﻿@page "/calendarOverview/{CalendarId:int}"
+@rendermode InteractiveServer
+<MudThemeProvider />
+<MudButton ButtonType="ButtonType.Button"
+           @onclick="GoBack"
+           Variant="Variant.Outlined"
+           Color="Color.Primary"
+           Class="ms-2">Terug</MudButton>
+<div class="text-center pb-5">
+    <h3>Gegenereerde kalender: @Calendar.Name</h3>
+</div>
+
+<MudButton Variant="Variant.Filled" Color="Color.Secondary" OnClick="ExportPlannedServices" Style="margin-top: 20px; margin-bottom: 20px;">
+    Exporteer kalender
+</MudButton>
+
+<p>* Klik op een dienst om deze te wijzigen/in te vullen *</p>
+@if (Days.Count() > 0)
+{
+    <table class="table table-striped table-bordered">
+        @foreach (var day in Days)
+        {
+            <thead>
+                <tr>
+                    <th>Dag</th>
+                    @foreach (var partOfDay in day.PartOfDays)
+                    {
+                        <th colspan="@partOfDay.Services.Count()">Dagdeel @partOfDay.Name: </th>
+                    }
+                </tr>
+            </thead>
+            <tbody>
+                <tr>
+                    <td>@GetDayNameDutch(day.Date) @day.Date.ToShortDateString()</td>
+                    @foreach (var partOfDay in day.PartOfDays)
+                    {
+                        foreach (var plannedService in PlannedServices.Where(p => p.PartOfDayId == partOfDay.Id))
+                        {
+                            <td  @onclick="() => OpenModal(plannedService)" class="@(plannedService.Member == null ? "table-danger" : "")">
+                                <strong>@plannedService.Service.Name:</strong><br>@plannedService.Member?.Name
+                            </td>
+                        }
+                    }
+                </tr>
+            </tbody>
+
+            }
+        </table>
+    }
+    @if (SelectedPlannedService != null)
+    {
+
+    <div class="modal fade @(IsModalVisible ? "show" : "")" style="display:@(IsModalVisible ? "block" : "none")" id="myModal" tabindex="-1" role="dialog" aria-labelledby="exampleModalLabel" aria-hidden="true">
+        <div class="modal-dialog" role="document">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title" id="exampleModalLabel">@SelectedPlannedService.Service.Name</h5>
+                    <button type="button" class="close" data-dismiss="modal" aria-label="Close" @onclick="CloseModal">
+                        <span aria-hidden="true">&times;</span>
+                    </button>
+                </div>
+                <div class="modal-body">
+                    <p>Dag: @GetDayNameDutch(PlannedServicePartOfDay.Day.Date) @PlannedServicePartOfDay.Day.Date.ToShortDateString()</p>
+                    <p>Van @PlannedServicePartOfDay.StartTime tot @PlannedServicePartOfDay.EndTime</p>
+                    <p>Toegewezen lid: @SelectedPlannedService.Member?.Name</p>
+                    <p>Gewicht van deze dienst: @SelectedPlannedService.Weight / 10</p>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" @onclick="CloseModal">Terug</button>
+                    <button type="button" class="btn btn-primary" @onclick="() => GoToEditPage(SelectedPlannedService.Id)">Bewerk</button>
+                </div>
+            </div>
+        </div>
+    </div>
+}
+
+<script>
+    window.downloadFileFromStream = async (fileName, contentStreamReference) => {
+        const arrayBuffer = await contentStreamReference.arrayBuffer();
+        const blob = new Blob([arrayBuffer]);
+        const url = URL.createObjectURL(blob);
+        const anchorElement = document.createElement('a');
+        anchorElement.href = url;
+        anchorElement.download = fileName ?? '';
+        anchorElement.click();
+        anchorElement.remove();
+        URL.revokeObjectURL(url);
+    }
+</script>
+
+
+@code {
+    @using Ezac.Roster.Infrastructure.Interfaces
+    @using Ezac.Roster.Domain.Entities
+    @using Ezac.Roster.Domain.Interfaces.Services
+    @inject ICalendarService calendarService
+    @inject IMemberService memberService
+    @inject IPlannedServiceService plannedServiceService
+    @inject IPartOfDayService partOfDayService
+    @inject IExcelService ExcelService
+    @inject IJSRuntime JS
+    @inject NavigationManager navManager
+
+
+    [Parameter]
+    public int CalendarId { get; set; }
+
+    private Calendar Calendar { get; set; } = new();
+    private List<Day> Days { get; set; } = new();
+    private List<PlannedService> PlannedServices { get; set; } = new();
+    private List<Member> Members { get; set; } = new();
+    private PlannedService PlannedService { get; set; } = new();
+    private Member Member { get; set; } = new();
+    private PlannedService SelectedPlannedService { get; set; }
+    private PartOfDay PlannedServicePartOfDay { get; set; } = new();
+    private bool IsModalVisible { get; set; } = false;
+
+    private string _message;
+
+
+    protected async override Task OnInitializedAsync()
+    {
+        try
+        {
+            //import calendar from db
+            var calendarFromDB = await calendarService.GetByIdAsync(CalendarId);
+            Calendar = calendarFromDB.Value;
+            Days = Calendar.Days.ToList();
+            var plannedServicesFromDB = await plannedServiceService.GetAllAsync();
+            PlannedServices = plannedServicesFromDB.Value.Where(ps => ps.CalendarId == CalendarId).ToList();
+            var membersFromDB = await memberService.GetAllAsync();
+            Members = membersFromDB.Value.Where(m => m.CalendarId == CalendarId).ToList();
+            StateHasChanged();
+        }
+        catch
+        {
+            navManager.NavigateTo("/calendar");
+        }
+    }
+    private void GoBack()
+    {
+        navManager.NavigateTo("/calendar");
+    }
+    private string GetDayNameDutch(DateTime date) => date.DayOfWeek switch
+    {
+        DayOfWeek.Monday => "Maandag",
+        DayOfWeek.Tuesday => "Dinsdag",
+        DayOfWeek.Wednesday => "Woensdag",
+        DayOfWeek.Thursday => "Donderdag",
+        DayOfWeek.Friday => "Vrijdag",
+        DayOfWeek.Saturday => "Zaterdag",
+        DayOfWeek.Sunday => "Zondag",
+        _ => string.Empty,
+    };
+    private void OpenModal(PlannedService plannedService)
+    {
+        IsModalVisible = true;
+        SelectedPlannedService = plannedService;
+        PlannedServicePartOfDay = Days.SelectMany(d => d.PartOfDays).FirstOrDefault(pod => pod.Id == plannedService.PartOfDayId);
+        StateHasChanged();
+
+    }
+    private void CloseModal()
+    {
+        IsModalVisible = false;
+    }
+    private void GoToEditPage(int id)
+    {
+        navManager.NavigateTo($"/edit/service/{id}");
+    }
+
+    private async Task ExportPlannedServices()
+    {
+        _message = string.Empty;
+
+        var stream = await ExcelService.ExportPlannedServicesAsync(CalendarId);
+
+        if (stream != null)
+        {
+            var fileName = "Vliegkalender.xlsx";
+            using var streamRef = new DotNetStreamReference(stream: new MemoryStream(Convert.FromBase64String(stream)));
+            await JS.InvokeVoidAsync("downloadFileFromStream", fileName, streamRef);
+            _message = "Exporteren succesvol.";
+        }
+        else
+        {
+            _message = "Er is een fout opgetreden bij het exporteren.";
+        }
+
+    }
+}

@@ -1,0 +1,96 @@
+﻿@page "/"
+@page "/login"
+<PageTitle>Log in</PageTitle>
+@using Microsoft.AspNetCore.Components.Authorization
+@using Microsoft.AspNetCore.Identity
+@using Ezac.Roster.Domain.Entities
+@using System.Threading.Tasks
+@inject SignInManager<AdminUser> signInManager
+@inject UserManager<AdminUser> userManager
+@inject NavigationManager navigationManager
+@inject AuthenticationStateProvider AuthenticationStateProvider
+
+<div class="background-image" style="background-image: url( @_imageUrl ); background-size: cover; background-position: center; height: 100vh; padding: 0; position: relative;">
+    <div class="container py-5 login-container">
+        <div class="row justify-content-center">
+            <div class="col-md-4">
+                <section class="card p-3 login-card" style="background-color: transparent; border: none">
+                    <h2 class="text-center mb-4 login-heading" style="color: white">Administrator Login</h2>
+                    <EditForm Model="_adminUser" OnValidSubmit="LoginUser" FormName="login">
+                        <DataAnnotationsValidator />
+                        <div class="row mb-3">
+                            <div class="col-md-3">
+                                <label for="username" class="form-label login-label" style="color: white">Gebruiker</label>
+                            </div>
+                            <div class="col-md-9">
+                                <InputText @bind-Value="_adminUser.UserName" class="form-control login-input" autocomplete="username" aria-required="true" placeholder="Vul gebruikersnaam in." />
+                                <ValidationMessage For="() => _adminUser.UserName" class="text-danger login-error" />
+                            </div>
+                        </div>
+                        <div class="row mb-3">
+                            <div class="col-md-3">
+                                <label for="password" class="form-label login-label" style="color: white">Wachtwoord</label>
+                            </div>
+                            <div class="col-md-9">
+                                <InputText Type="password" @bind-Value="_adminUser.Password" class="form-control login-input" autocomplete="current-password" aria-required="true" placeholder="Vul wachtwoord in." />
+                                <ValidationMessage For="() => _adminUser.Password" class="text-danger login-error" />
+                            </div>
+                        </div>
+                        <div class="mb-4"></div>
+                        <button type="submit" class="btn btn-primary btn-block mx-auto">Inloggen</button>
+                    </EditForm>
+                    <hr />
+                    @if (!string.IsNullOrEmpty(_errorMessage))
+                    {
+                        <div class="alert alert-danger" role="alert">
+                            <p>@_errorMessage</p>
+                        </div>
+                    }
+                </section>
+            </div>
+        </div>
+    </div>
+</div>
+
+@code {
+    private string _errorMessage;
+
+    [SupplyParameterFromForm]
+    private AdminUser _adminUser { get; set; } = new();
+    private const string _imageUrl = "https://images.rawpixel.com/image_800/czNmcy1wcml2YXRlL3Jhd3BpeGVsX2ltYWdlcy93ZWJzaXRlX2NvbnRlbnQvbHIvZnJnbGlkZXJfYWZ0ZXJnbG93X3N1bnNldF90d2lsaWdodC1pbWFnZS1reWJkbGtybi5qcGc.jpg";
+    public HttpContext HttpContext;
+
+
+    public async Task LoginUser()
+    {
+        if (string.IsNullOrWhiteSpace(_adminUser.UserName) || string.IsNullOrWhiteSpace(_adminUser.Password))
+        {
+            _errorMessage = "Geef aub een gebruikersnaam en wachtwoord op.";
+            return;
+        }
+
+        var result = await signInManager.PasswordSignInAsync(_adminUser.UserName, _adminUser.Password, true, false);
+
+        if (result.Succeeded)
+        {
+            navigationManager.NavigateTo("/calendar");
+        }
+        else
+        {
+            _errorMessage = "Ongeldige inlogpoging.";
+        }
+    }
+
+    protected override async Task OnInitializedAsync()
+    {
+        HttpContext = new HttpContextAccessor().HttpContext;
+        if (HttpContext.User.Identity.IsAuthenticated)
+        {
+            await signInManager.SignOutAsync();
+            navigationManager.NavigateTo("/");
+        }
+        _adminUser.UserName = "Admin";
+        _adminUser.Password = "Test123?";
+    }
+
+}

@@ -1,0 +1,35 @@
+﻿@page "/result/{isSuccess:bool}/{Message}"
+@rendermode InteractiveServer
+
+<div class="container">
+    <div class="row justify-content-center">
+        <div class="col-md-6">
+            @if (isSuccess)
+            {
+                <div class="alert alert-success" role="alert">
+                    <h4 class="alert-heading">Bedankt!</h4>
+                    <p>@Message</p>
+                    <hr>
+                    <p class="mb-0">Zodra de kalender gemaakt is wordt dit doorgestuurd naar jou.</p>
+                </div>
+            }
+            else
+            {
+                <div class="alert alert-danger" role="alert">
+                    <h4 class="alert-heading">@Message</h4>
+                    <p>Je gegevens konden niet worden doorgestuurd.</p>
+                    <hr>
+                    <p class="mb-0">Probeer het later opnieuw of neem contact met ons op.</p>
+                </div>
+            }
+        </div>
+    </div>
+</div>
+
+
+@code {
+    [Parameter]
+    public bool isSuccess { get; set; }
+    [Parameter]
+    public string Message { get; set; }
+}

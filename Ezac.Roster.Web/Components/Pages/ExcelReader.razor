@@ -1,0 +1,104 @@
+﻿@page "/excelreader/{calendarId:int}"
+@rendermode InteractiveServer
+@using Ezac.Roster.Domain.Interfaces.Services
+@using Ezac.Roster.Domain.Interfaces.Repositories
+@using Ezac.Roster.Infrastructure.Interfaces
+@inject IExcelService ExcelService
+@inject ICalendarService CalendarService
+@inject IMemberRepository MemberRepository
+@inject NavigationManager NavigationManager
+@inject IJSRuntime JS
+@using MudBlazor
+
+<div class="container" style="margin-top: 20px; margin-bottom: 40px;">
+    <div class="row justify-content-center">
+        <div class="col-md-6 text-center" style="margin-bottom: 40px;">
+            <h1>Importeer excel</h1>
+            <p>Hier kun je een excel sjabloon downloaden:</p>
+            <a href="files/Template.xlsx" class="btn btn-primary">Download sjabloon</a>
+            <p style="margin-top: 150px;">Selecteer hier je Excel-bestand om je leden toe te voegen.</p>
+            <MudFileUpload T="IBrowserFile" FilesChanged="HandleFileChange" Accept=".xls,.xlsx">
+                <ButtonTemplate>
+                    <MudButton HtmlTag="label"
+                               Variant="Variant.Filled"
+                               Color="Color.Primary"
+                               StartIcon="@Icons.Material.Filled.CloudUpload"
+                               for="@context.Id"
+                               Disabled="_isLoading">
+                        Importeer Excel
+                    </MudButton>
+                </ButtonTemplate>
+            </MudFileUpload>
+
+            @if (!string.IsNullOrEmpty(_message))
+            {
+                <p style="margin-top: 20px;">@_message</p>
+            }
+
+
+        </div>
+    </div>
+</div>
+
+<MudProgressCircular Indeterminate="true" Style="position: absolute; top: 50%; left: 50%;" Class="@(_isLoading ? "" : "d-none")" />
+
+
+@code {
+    [Parameter]
+    public int CalendarId { get; set; }
+
+    private bool _isLoading = false;
+    private string _message;
+
+    protected override async Task OnInitializedAsync()
+    {
+        var calendar = await CalendarService.GetByIdAsync(CalendarId);
+        if (!calendar.IsSuccess)
+        {
+            NavigationManager.NavigateTo("/calendar");
+        }
+    }
+
+    private async Task HandleFileChange(IBrowserFile e)
+    {
+        _isLoading = true;
+        _message = string.Empty;
+
+        var file = e;
+        if (file != null)
+        {
+            var extension = Path.GetExtension(file.Name);
+            if (extension != ".xls" && extension != ".xlsx")
+            {
+                _isLoading = false;
+                _message = "Kies een Excel bestand";
+                return;
+            }
+            else
+            {
+                using var stream = file.OpenReadStream();
+                var readResult = await ExcelService.ReadFileAsync(stream);
+                if (readResult.IsSuccess)
+                {
+                    readResult.Value.Select(v => v.CalendarId = CalendarId).ToList();
+                    var saveResult = await ExcelService.SaveMembersAndQualificationsAsync(readResult.Value);
+                    if (saveResult)
+                    {
+                        _message = "Leden en kwalificaties werden succesvol toegevoegd.";
+                        NavigationManager.NavigateTo($"/membersOverview/{CalendarId}");
+                    }
+                    else
+                    {
+                        _message = "Kon leden en kwalificaties niet toevoegen";
+                    }
+                }
+                else
+                {
+                    _message = "Probleem met het lezen van de Excel";
+                }
+            }
+        }
+        _isLoading = false;
+    }
+
+}

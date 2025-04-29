@@ -1,0 +1,293 @@
+﻿@page "/calendar"
+@rendermode InteractiveServer
+@using Ezac.Roster.Domain.Entities
+@using Ezac.Roster.Infrastructure.Interfaces
+@using MudBlazor
+@using Ezac.Roster.Domain.Models
+@inject ICalendarService calendarService
+@inject IDialogService DialogService
+@inject IMemberService memberService
+@inject IServiceService serviceService
+@inject NavigationManager navManager
+
+<MudThemeProvider />
+<MudDialogProvider Position="DialogPosition.Center" />
+<h3 class="text-center">Alle kalenders</h3>
+<div>
+    <label class="text-danger">@_errorMessage</label>
+</div>
+<MudButton Class="mt-5"
+           Variant="Variant.Filled"
+           OnClick="GoToAddPage"
+           Disabled="_isLoading"
+           StartIcon="@Icons.Material.Filled.Add"
+           Color="Color.Primary"
+           Tooltip="Klik hier om een nieuwe kalender toe te voegen">Voeg een nieuwe kalender toe</MudButton>
+<MudTable Items="@Calendars"
+          Dense="@_isDense"
+          Hover="@_isHover"
+          Bordered="@_isBordered"
+          Striped="@_isStriped"
+          Filter="new Func<Calendar, bool>(CalendarFilterFunc)"
+          @bind-SelectedItem="_calendar"
+          Loading="@_isLoading">
+    <ToolBarContent>
+        <MudTextField @bind-Value="_searchString"
+                      Placeholder="Zoek kalender op naam"
+                      Adornment="Adornment.Start"
+                      AdornmentIcon="@Icons.Material.Filled.Search"
+                      IconSize="Size.Medium"
+                      Class="mt-0"
+                      Tooltip="Typ hier om te zoeken op kalendernaam"></MudTextField>
+    </ToolBarContent>
+
+    <HeaderContent>
+        <MudTh>Naam</MudTh>
+        <MudTh>Beschrijving</MudTh>
+        <MudTh>Werklast</MudTh>
+        <MudTh>Acties</MudTh>
+    </HeaderContent>
+    <RowTemplate>
+        <MudTd DataLabel="Naam" Class="fw-bold">@context.Name</MudTd>
+        <MudTd DataLabel="Beschrijving">@context.Description</MudTd>
+        <MudTd DataLabel="Werklast">
+            @GetWorkLoad(context.Id)
+        </MudTd>
+        <MudTd DataLabel="Acties">
+            <MudTooltip Text="Klik hier om de leden van deze kalender te beheren" Arrow="true" Placement="Placement.Top">
+                <MudButton Variant="Variant.Filled"
+                           @onclick="() => GoToMembersOverviewPage(context.Id)"
+                           StartIcon="@Icons.Material.Filled.People"
+                           Disabled="_isLoading"
+                           Color="Color.Primary">Beheer leden</MudButton>
+            </MudTooltip>
+            <MudTooltip Text="Klik hier om deze kalender te bewerken" Arrow="true" Placement="Placement.Top">
+                <MudButton Variant="Variant.Filled"
+                           OnClick="() => GoToEditPage(context.Id)"
+                           Disabled="_isLoading"
+                           StartIcon="@Icons.Material.Filled.Edit"
+                           Color="Color.Warning">Bewerken</MudButton>
+            </MudTooltip>
+
+            <MudTooltip Text="Klik hier om de kalender automatisch in te vullen" Arrow="true" Placement="Placement.Top">
+                <MudButton Variant="Variant.Filled"
+                           @onclick="() => GoToGenerateCalendar(context.Id)"
+                           StartIcon="@Icons.Material.Filled.AutoFixHigh"
+                           Disabled="_isLoading"
+                           Color="Color.Success">Automatisch invullen</MudButton>
+            </MudTooltip>
+
+            <MudTooltip Text="Klik hier om de ingevulde kalender te bekijken" Arrow="true" Placement="Placement.Top">
+                <MudButton Variant="Variant.Filled"
+                           @onclick="() => GoToCalendarOverview(context.Id)"
+                           StartIcon="@Icons.Material.Filled.CalendarToday"
+                           Disabled="_isLoading"
+                           Color="Color.Success">Bekijk ingevulde kalender</MudButton>
+            </MudTooltip>
+            <MudTooltip Text="Klik hier om deze kalender te verwijderen" Arrow="true" Placement="Placement.Top">
+                <MudButton Variant="Variant.Filled"
+                           @onclick="() => DeleteItem(context.Id)"
+                           StartIcon="@Icons.Material.Filled.Delete"
+                           Disabled="_isLoading"
+                           Color="Color.Error">Verwijderen</MudButton>
+            </MudTooltip>
+            <MudTooltip Text="Klik hier om alle gebruikers te zien in deze kalender met de totale werklast." Arrow="true" Placement="Placement.Top">
+                <MudButton Variant="Variant.Filled"
+                           @onclick="() => GoToTotalWorkload(context.Id)"
+                           StartIcon="@Icons.Material.Filled.Work"
+                           Disabled="_isLoading"
+                           Color="Color.Secondary">Werklast</MudButton>
+            </MudTooltip>
+        </MudTd>
+    </RowTemplate>
+    <PagerContent>
+        <MudTablePager />
+    </PagerContent>
+</MudTable>
+
+@code {
+    private bool _isDense = false;
+    private bool _isHover = true;
+    private bool _isStriped = false;
+    private bool _isBordered = false;
+    private string _searchString = "";
+    private Calendar _calendar = null;
+    private List<Calendar> Calendars { get; set; } = new List<Calendar>();
+    private List<Member> Members { get; set; } = new List<Member>();
+    private List<Service> Services { get; set; } = new List<Service>();
+    private string _errorMessage { get; set; }
+    private int _total;
+    private bool _isLoading = false;
+    private Dictionary<int, int> _workLoads = new();
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadCalendars();
+    }
+
+    private async Task LoadCalendars()
+    {
+        Calendars.Clear();
+        var calendarsResult = await calendarService.GetAllAsync();
+        if (calendarsResult.IsSuccess)
+        {
+            Calendars = calendarsResult.Value.ToList();
+            foreach (var calendar in Calendars)
+            {
+                _workLoads[calendar.Id] = await CalculateWorkLoadPerCalendar(calendar.Id);
+            }
+        }
+        StateHasChanged();
+    }
+
+    private bool CalendarFilterFunc(Calendar calendar) => MatchesSearchString(calendar, _searchString);
+
+    private bool MatchesSearchString(Calendar calendar, string searchString)
+    {
+        if (string.IsNullOrWhiteSpace(searchString))
+            return true;
+        if (calendar.Name.Contains(searchString, StringComparison.OrdinalIgnoreCase))
+            return true;
+        return false;
+    }
+
+    private void GoToAddPage()
+    {
+        _isLoading = true;
+        navManager.NavigateTo("/calendar/add");
+        _isLoading = false;
+    }
+
+    private void GoToEditPage(int id)
+    {
+        _isLoading = true;
+        navManager.NavigateTo($"calendar/edit/{id}");
+        _isLoading = false;
+    }
+
+    private async Task DeleteItem(int id)
+    {
+        if (!await DialogInfo())
+            return;
+        var result = await calendarService.DeleteAsync(id);
+        if (result.IsSuccess)
+        {
+            await LoadCalendars();
+        }
+        else
+        {
+            _errorMessage = "Er is een fout opgetreden bij het verwijderen van de kalender.";
+        }
+    }
+
+    private async Task<bool> DialogInfo()
+    {
+        var parameters = new DialogParameters<Dialog>();
+        parameters.Add(x => x.ContentText, "Ben je zeker dat je dit wilt verwijderen");
+        parameters.Add(x => x.ButtonText, "Verwijder");
+        parameters.Add(x => x.Color, Color.Error);
+
+        var options = new DialogOptions() { CloseButton = true, MaxWidth = MaxWidth.Medium };
+
+        IDialogReference dialogReference = await DialogService.ShowAsync<Dialog>("Verwijder", parameters, options);
+
+        DialogResult result = await dialogReference.Result;
+        return !result.Canceled;
+    }
+
+    private async Task<bool> DialogGenerate()
+    {
+        var parameters = new DialogParameters<Dialog>();
+        parameters.Add(x => x.ContentText, "Ben je zeker dat je deze kalender opnieuw wilt laten automatisch invullen? De vorige ingevulde diensten gaan dan verloren!");
+        parameters.Add(x => x.ButtonText, "JA");
+        parameters.Add(x => x.Color, Color.Error);
+
+        var options = new DialogOptions() { CloseButton = true, MaxWidth = MaxWidth.Medium };
+
+        IDialogReference dialogReference = await DialogService.ShowAsync<Dialog>("Opnieuw genereren?", parameters, options);
+
+        DialogResult result = await dialogReference.Result;
+        return !result.Canceled;
+    }
+
+    public async Task<int> CalculateWorkLoadPerCalendar(int calendarId)
+    {
+        var calendarResult = await calendarService.GetByIdAsync(calendarId);
+        if (calendarResult.IsSuccess)
+        {
+            var calendar = calendarResult.Value;
+            var allServices = await serviceService.GetAllAsync();
+            var servicesWeights = allServices.Value.Where(s => s.PartOfDayId != null && s.PartOfDay.Day.CalendarId == calendarId).Select(s => s.Weight).ToList();
+            return servicesWeights.Sum();
+        }
+        else
+        {
+            _errorMessage = "Er is een fout opgetreden bij het berekenen van de werklast.";
+            return 0;
+        }
+    }
+
+    private int GetWorkLoad(int calendarId)
+    {
+        return _workLoads.TryGetValue(calendarId, out var workload) ? workload : 0;
+    }
+
+    public void GoToMembersOverviewPage(int id)
+    {
+        _isLoading = true;
+        navManager.NavigateTo($"/membersOverview/{id}");
+        _isLoading = false;
+    }
+    public void GoToTotalWorkload(int id)
+    {
+        _isLoading = true;
+        navManager.NavigateTo($"/workload/{id}");
+        _isLoading = false;
+    }
+    public async Task GoToGenerateCalendar(int id)
+    {
+        _errorMessage = "";
+        _isLoading = true;
+        var calendar = await calendarService.GetByIdAsync(id);
+        if (calendar.IsSuccess)
+        {
+            if (!calendar.Value.Members.Any())
+            {
+                _errorMessage = "Voeg eerst leden toe aan deze kalender om de automatische generatie van de kalender te gebruiken!";
+                _isLoading = false;
+            }
+            else
+            {
+                if (calendar.Value.PlannedServices != null && calendar.Value.PlannedServices.Any())
+                {
+                    if (!await DialogGenerate())
+                    {
+                        _isLoading = false;
+                        return;
+                    }
+                }
+                navManager.NavigateTo($"/calendar/{calendar.Value.Id}");
+            }
+        }
+        else
+        {
+            _errorMessage = "Er is een fout opgetreden bij het ophalen van de kalendergegevens.";
+        }
+        _isLoading = false;
+    }
+
+    public void GoToCalendarOverview(int id)
+    {
+        var calendar = Calendars.FirstOrDefault(c => c.Id == id);
+        if (calendar?.PlannedServices == null || !calendar.PlannedServices.Any())
+        {
+            _errorMessage = "Gelieve eerst de automatische planner te gebruiken om de diensten binnen deze kalender manueel toe te wijzen/bewerken!";
+        }
+        else
+        {
+            _isLoading = true;
+            navManager.NavigateTo($"/calendarOverview/{id}");
+            _isLoading = false;
+        }
+    }
+}
